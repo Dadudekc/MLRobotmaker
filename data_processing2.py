@@ -1,5 +1,7 @@
 # data_processing2
 
+import configparser
+
 import pandas as pd
 import os
 import logging
@@ -12,7 +14,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define format2 folder path
-format2_path = "C:\\Users\Dagurlkc\\OneDrive\\Desktop\\DaDudeKC\\MyAIRobot\\csv_files\\format2"
+# Read configuration from config.ini
+base_path = os.path.dirname(os.path.abspath(__file__))
+config_file_path = os.path.join(base_path, 'config.ini')
+config = configparser.ConfigParser()
+config.read(config_file_path)
+format2_path = os.path.join(base_path, config.get('Paths', 'format2processeddata', fallback='csv_files/format2'))
 
 # Function to add features and technical indicators
 def add_features_and_indicators(df):

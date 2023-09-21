@@ -1,22 +1,29 @@
+import configparser
 
-from configparser import ConfigParser
+config = configparser.ConfigParser()
+config_file_path = 'config.ini'
+
+
+
+
 import logging
 
-def read_config(config_file_path='config.ini'):
-    config = ConfigParser()
-    try:
-        if config.read(config_file_path) == []:
-            logging.error(f"Error reading the configuration file: {config_file_path}")
-            return None
-        return config
-    except Exception as e:
-        logging.error(f"An exception occurred while reading the config file: {e}")
-        return None
+
+
+try:
+    if config.read(config_file_path) == []:
+        logging.error(f"Error reading the configuration file: {config_file_path}")
+        # return None
+    # return config
+except Exception as e:
+    logging.error(f"An exception occurred while reading the config file: {e}")
+    # return None
 
 
 
 # Load configuration from config.ini
-config = read_config('config.ini')
+config_file_path = 'config.ini'
+config.read(config_file_path)
 input_size = config.getint('Model', 'input_size', fallback=11)
 hidden_layers = config.getint('Model', 'hidden_layers', fallback=4)
 output_size = config.getint('Model', 'output_size', fallback=1)
@@ -32,7 +39,10 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import tensorflow as tf
-import configparser
+
+
+base_path = os.path.dirname(os.path.abspath(__file__))
+
 import datetime
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, PowerTransformer
@@ -43,17 +53,17 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score,ac
 from tensorflow.keras.models import load_model
 from keras_tuner import HyperModel, RandomSearch
 
-def read_config(config_file_path=config.get('Paths', 'config_file', fallback='config.ini')):
-    config = configparser.ConfigParser()
-    logging.info("Reading configuration file... 📖")
-    try:
-        if config.read(config_file_path) == []:
-            logging.error(f"Error reading the configuration file: {config_file_path} ❌")
-            return None
-        return config
-    except Exception as e:
-        logging.error(f"Error reading the configuration file. {e} ❌")
-        print(f"An error occurred while reading the configuration file: {e}")
+
+config = configparser.ConfigParser()
+logging.info("Reading configuration file... 📖")
+try:
+if config.read(config_file_path) == []:
+    logging.error(f"Error reading the configuration file: {config_file_path} ❌")
+    # return None
+# return config
+except Exception as e:
+logging.error(f"Error reading the configuration file. {e} ❌")
+print(f"An error occurred while reading the configuration file: {e}")
 
 def create_directory(directory):
     if not os.path.exists(directory):
@@ -162,7 +172,8 @@ def evaluate_model(model, X_test, y_test_scaled, y_scaler):
 
 def main():
     # Read config
-    config = read_config()
+    config = configparser.ConfigParser()
+config.read(config_file_path)
 
     # Define batch_size and epochs
     batch_size = config.getint('Training', 'batch_size')
