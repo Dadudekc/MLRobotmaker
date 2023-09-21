@@ -54,16 +54,16 @@ from tensorflow.keras.models import load_model
 from keras_tuner import HyperModel, RandomSearch
 
 
-config = configparser.ConfigParser()
-logging.info("Reading configuration file... 📖")
-try:
-if config.read(config_file_path) == []:
-    logging.error(f"Error reading the configuration file: {config_file_path} ❌")
-    # return None
-# return config
-except Exception as e:
-logging.error(f"Error reading the configuration file. {e} ❌")
-print(f"An error occurred while reading the configuration file: {e}")
+def read_config(config_file_path='config.ini'):
+    config = ConfigParser()
+    try:
+        if config.read(config_file_path) == []:
+            logging.error(f"Error reading the configuration file: {config_file_path}")
+            return None
+        return config
+    except Exception as e:
+        logging.error(f"An exception occurred while reading the config file: {e}")
+        return None
 
 def create_directory(directory):
     if not os.path.exists(directory):
@@ -121,7 +121,7 @@ def save_model_and_predictions(model, model_filename, predictions_filename, y_te
 def train_model(model, X_train, y_train, X_test, y_test, batch_size, epochs, model_filename, predictions_filename, scaler):
     logging.info("Training model... 🏋️‍♀️")
 
-    checkpoint_path = "best_model.h5"
+    checkpoint_path = "best_model_open.h5"
     checkpoint = ModelCheckpoint(checkpoint_path,
                                  monitor='val_loss',
                                  verbose=1,
@@ -171,92 +171,96 @@ def evaluate_model(model, X_test, y_test_scaled, y_scaler):
     return mse
 
 def main():
+    # Check if predictions directory exists, if not, create it
+    if not os.path.exists(predictions_directory):
+        os.makedirs(predictions_directory)
+
     # Read config
     config = configparser.ConfigParser()
 config.read(config_file_path)
 
-    # Define batch_size and epochs
-    batch_size = config.getint('Training', 'batch_size')
-    epochs = config.getint('Training', 'epochs')
+# Define batch_size and epochs
+batch_size = config.getint('Training', 'batch_size')
+epochs = config.getint('Training', 'epochs')
 
-    # Define directories
-    models_directory = config.get('Paths', 'models_directory')
-    predictions_directory = config.get('Paths', 'predictions_directory')
-    data_directory = config.get('Paths', 'data_directory')
+# Define directories
+models_directory = config.get('Paths', 'models_directory')
+predictions_directory = "predictions"
+data_directory = config.get('Paths', 'data_directory')
 
-    # Create directories for predictions and models
-    create_directory(predictions_directory)
-    create_directory(models_directory)
+# Create directories for predictions and models
+create_directory(predictions_directory)
+create_directory(models_directory)
 
-    # Rest of your code, including the loop for processing data files
-    best_mse = float('inf')
-    best_model = None
+# Rest of your code, including the loop for processing data files
+best_mse = float('inf')
+best_model = None
 
-    for file in os.listdir(data_directory):
-        try:
-            if file.endswith(".csv"):
-                logging.info(f"Processing {file}... 🔍")
-                data = pd.read_csv(os.path.join(data_directory, file))
+for file in os.listdir(data_directory):
+    try:
+        if file.endswith(".csv"):
+            logging.info(f"Processing {file}... 🔍")
+            data = pd.read_csv(os.path.join(data_directory, file))
                 
-                for scaler_type in ['standard', 'power']:
-                    model_name = re.sub(r'_data_processed_data\.csv$', '', file) + '_' + scaler_type
+            for scaler_type in ['standard', 'power']:
+                model_name = re.sub(r'_data_processed_data\.csv$', '', file) + '_' + scaler_type
 
-                    # Preprocess data
-                    processed_data = preprocess_data(data)
-                    X = processed_data[['open', 'high', 'low', 'volume', 'rsi', 'stoch_oscillator', 'williams_r', 'ema_20', 'bb_bands', 'atr', 'macd']]
-                    y = processed_data['close']
+                # Preprocess data
+                processed_data = preprocess_data(data)
+                X = processed_data[['open', 'high', 'low', 'volume', 'SMA_10', 'EMA_10', 'Price_RoC', 'Bollinger_High', 'Bollinger_Low', 'Bollinger_Mid']]
+                y = processed_data['close']
 
-                    # Verify the shape of your input data
-                    print(f"Shape of X: {X.shape}")
-                    print(f"Shape of y: {y.shape}")
+                # Verify the shape of your input data
+                print(f"Shape of X: {X.shape}")
+                print(f"Shape of y: {y.shape}")
 
-                    # Split and scale data
-                    X_train, X_test, y_train_scaled, y_test_scaled, X_scaler, y_scaler = split_data(X, y, scaler_type)
-                    y_train_scaled = y_scaler.fit_transform(y_train_scaled.reshape(-1, 1))
-                    y_test_scaled = y_scaler.transform(y_test_scaled.reshape(-1, 1))
+                # Split and scale data
+                X_train, X_test, y_train_scaled, y_test_scaled, X_scaler, y_scaler = split_data(X, y, scaler_type)
+                y_train_scaled = y_scaler.fit_transform(y_train_scaled.reshape(-1, 1))
+                y_test_scaled = y_scaler.transform(y_test_scaled.reshape(-1, 1))
 
-                    # Build and train model
-                    hidden_layers = config.getint('Model', 'hidden_layers')
-                    output_size = config.getint('Model', 'output_size')
-                    hypermodel = RegressionHyperModel(input_shape=X_train.shape[1])
-                    tuner = RandomSearch(
-                        hypermodel,
-                        objective='val_loss',
-                        max_trials=10,
-                        executions_per_trial=2
-                    )
-                    tuner.search(
-                        X_train,
-                        y_train_scaled,
-                        epochs=epochs,
-                        batch_size=batch_size,
-                        verbose=1,
-                        validation_data=(X_test, y_test_scaled)
-                    )
-                    best_model = tuner.get_best_models(num_models=1)[0]
-                    train_model(
-                        best_model,
-                        X_train,
-                        y_train_scaled,
-                        X_test,
-                        y_test_scaled,
-                        batch_size=batch_size,
-                        epochs=epochs,
-                        model_filename=os.path.join(models_directory, f"{model_name}_model.h5"),
-                        predictions_filename=os.path.join(predictions_directory, f"{model_name}_predictions.csv"),
-                        scaler=y_scaler
-                    )
+                # Build and train model
+                hidden_layers = config.getint('Model', 'hidden_layers')
+                output_size = config.getint('Model', 'output_size')
+                hypermodel = RegressionHyperModel(input_shape=X_train.shape[1])
+                tuner = RandomSearch(
+                    hypermodel,
+                    objective='val_loss',
+                    max_trials=10,
+                    executions_per_trial=2
+                )
+                tuner.search(
+                    X_train,
+                    y_train_scaled,
+                    epochs=epochs,
+                    batch_size=batch_size,
+                    verbose=1,
+                    validation_data=(X_test, y_test_scaled)
+                )
+                best_model = tuner.get_best_models(num_models=1)[0]
+                train_model(
+                    best_model,
+                    X_train,
+                    y_train_scaled,
+                    X_test,
+                    y_test_scaled,
+                    batch_size=batch_size,
+                    epochs=epochs,
+                    model_filename=os.path.join(models_directory, f"{model_name}_model.h5"),
+                    predictions_filename=os.path.join(predictions_directory, f"{model_name}_predictions.csv"),
+                    scaler=y_scaler
+                )
 
-                    # Evaluate the model
-                    mse = evaluate_model(best_model, X_test, y_test_scaled, y_scaler)
+                # Evaluate the model
+                mse = evaluate_model(best_model, X_test, y_test_scaled, y_scaler)
 
-                    # Check if this model is the best model so far
-                    if mse < best_mse:
-                        best_model = best_model
-                        best_mse = mse
+                # Check if this model is the best model so far
+                if mse < best_mse:
+                    best_model = best_model
+                    best_mse = mse
 
-        except Exception as e:
-            logging.error(f"Could not process {file}. Error: {e} ❌")
+    except Exception as e:
+        logging.error(f"Could not process {file}. Error: {e} ❌")
 
 if __name__ == "__main__":
     main()
