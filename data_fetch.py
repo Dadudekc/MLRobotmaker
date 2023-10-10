@@ -17,7 +17,7 @@ def read_config(config_file_path='config.ini'):
 
 # Load configuration from config.ini
 config = read_config('config.ini')
-api_key = config.get('API', 'AlphaVantage', fallback='Your_Default_API_Key')
+api_key = config.get('API', 'AlphaVantage', fallback='NUZ7HO2VBZZO3GND')
 csv_directory = config.get('csv_directory', 'directory_path', fallback='Your_Default_CSV_Directory')
 
 

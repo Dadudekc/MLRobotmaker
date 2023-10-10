@@ -1,29 +1,10 @@
 
 from configparser import ConfigParser
-import logging
-
-def read_config(config_file_path='config.ini'):
-    config = ConfigParser()
-    try:
-        if config.read(config_file_path) == []:
-            logging.error(f"Error reading the configuration file: {config_file_path}")
-            return None
-        return config
-    except Exception as e:
-        logging.error(f"An exception occurred while reading the config file: {e}")
-        return None
-
-
-from configparser import ConfigParser
-
-
-
 import os
 import pandas as pd
 import ta
 import logging
 import configparser
-
 from keras.models import load_model  # Import the load_model function
 from alpha_vantage.timeseries import TimeSeries
 import numpy as np
@@ -33,17 +14,43 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load configuration from config.ini
-config = read_config('config.ini')  # Updated code using the read_config function  # Adjust the path to your config file
+def read_config(config_file_path='config.ini'):                                                                                                  
+       config = ConfigParser()                                                                                                                      
+       try:                                                                                                                                         
+           if config.read(config_file_path) == []:                                                                                                  
+               logging.error(f"Error reading the configuration file: {config_file_path}")                                                           
+               return None                                                                                                                          
+           return config                                                                                                                            
+       except Exception as e:                                                                                                                       
+           logging.error(f"An exception occurred while reading the config file: {e}")                                                               
+           return None                                                                                                                              
+                                                                                                                                                                                                                                              
+                                                           
+                                                                                                                                                    
+    # Use the config object to set up your config_settings dictionary                                                                                
+config_settings = {                                                                                                                              
+       'PowerModelDirectory': config.get('DIRECTORIES', 'PowerModelDirectory'),                                                                     
+       'StandardModelDirectory': config.get('DIRECTORIES', 'StandardModelDirectory'),                                                               
+       'start_date': config.get('Backtesting', 'start_date'),                                                                                       
+       'end_date': config.get('Backtesting', 'end_date')                                                                                            
+    }                                                                                                                                                
+           
 
 # Separate Configuration Settings
-def load_config():
+def load_config(config_file_path='config.ini'):
+    config = ConfigParser()
+    if not config.read(config_file_path):
+        logging.error(f"Error reading the configuration file: {config_file_path}")
+        return None
     return {
         'api_key': config.get('API', 'AlphaVantage', fallback='Your_Default_API_Key'),
-        'models_directory': config.get('Paths', 'models_directory', fallback='Your_Default_Models_Directory'),
-        'grandfather_models_directory': config.get('Paths', 'grandfather_models_directory', fallback='Your_Default_Grandfather_Models_Directory'),
+        'power_model_directory': config.get('DIRECTORIES', 'PowerModelDirectory', fallback='Your_Default_Models_Directory'),
+        'standard_model_directory': config.get('DIRECTORIES', 'StandardModelDirectory', fallback='Your_Default_Models_Directory'),
+        'backtest_data_folder': config.get('DIRECTORIES', 'BacktestDataFolder', fallback='Your_Default_Backtest_Data_Folder'),
         'start_date': config.get('Backtesting', 'start_date', fallback='Your_Default_Start_Date'),
         'end_date': config.get('Backtesting', 'end_date', fallback='Your_Default_End_Date')
     }
+
 
 # Updated backtest_regression function with move accuracy
 
@@ -137,20 +144,25 @@ def preprocess_data(backtest_data_folder):
 
 # Main Function
 def main():
-    config_settings = load_config()
+    config = configparser.ConfigParser()
+    config.read('config.ini')
+    config_settings = config['DEFAULT']
+
     preprocess_data(r'C:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MyAIRobot\backtest_data')
 
-    regression_models = load_models(config_settings['models_directory'])  # Assuming regression models
-    symbols_to_test = ['TSLA']
-    start_date = config_settings['start_date']
-    end_date = config_settings['end_date']
+power_model_directory = config_settings['PowerModelDirectory']
+standard_model_directory = config_settings['StandardModelDirectory']
+regression_models = load_models(power_model_directory, standard_model_directory)
+symbols_to_test = ['TSLA']
+start_date = config_settings['start_date']
+end_date = config_settings['end_date']
 
-    for symbol in symbols_to_test:
-        print(f"Backtesting for symbol: {symbol}")
+for symbol in symbols_to_test:
+    print(f"Backtesting for symbol: {symbol}")
 
-        backtest_results = backtest_regression(regression_models, [symbol], start_date, end_date, config_settings['api_key'])
-        print("Backtesting Results:")
-        print(backtest_results)
+    backtest_results = backtest_regression(regression_models, [symbol], start_date, end_date, config_settings['api_key'])
+    print("Backtesting Results:")
+    print(backtest_results)
 
 if __name__ == "__main__":
     main()
