@@ -12,48 +12,48 @@ import time
 # Import your specific modules for data fetching
 from Data_fetch.main import main as fetch_main
 
-
 class DataFetchTab:
-    def __init__(self, master, config, is_debug_mode):
-        self.master = master
+    def __init__(self, parent, config, is_debug_mode):
+        self.parent = parent
         self.config = config
         self.is_debug_mode = is_debug_mode
         self.setup_data_fetch_tab()
 
     def setup_data_fetch_tab(self):
         # Set up the Data Fetch tab UI elements here
-        tk.Label(self.master, text="Stock Tickers (comma separated):").pack()
-        self.tickers_entry = tk.Entry(self.master)
+        tk.Label(self.parent, text="Stock Tickers (comma separated):").pack()
+        self.tickers_entry = tk.Entry(self.parent)
         self.tickers_entry.pack()
 
-        tk.Label(self.master, text="Start Date:").pack()
-        self.start_date_entry = DateEntry(self.master, width=12, background='darkblue', foreground='white', borderwidth=2)
+        tk.Label(self.parent, text="Start Date:").pack()
+        self.start_date_entry = DateEntry(self.parent, width=12, background='darkblue', foreground='white', borderwidth=2)
         self.start_date_entry.pack()
 
-        tk.Label(self.master, text="End Date:").pack()
-        self.end_date_entry = DateEntry(self.master, width=12, background='darkblue', foreground='white', borderwidth=2)
+        tk.Label(self.parent, text="End Date:").pack()
+        self.end_date_entry = DateEntry(self.parent, width=12, background='darkblue', foreground='white', borderwidth=2)
         self.end_date_entry.pack()
 
-        tk.Label(self.master, text="Select API:").pack()
+        tk.Label(self.parent, text="Select API:").pack()
         self.api_var = tk.StringVar()
-        self.api_dropdown = ttk.Combobox(self.master, textvariable=self.api_var, values=["AlphaVantage", "polygonio", "Nasdaq"])
+        self.api_dropdown = ttk.Combobox(self.parent, textvariable=self.api_var, values=["AlphaVantage", "polygonio", "Nasdaq"])
         self.api_dropdown.pack()
 
-        self.fetch_button = tk.Button(self.master, text="Fetch Data", command=self.fetch_data)
+        self.fetch_button = tk.Button(self.parent, text="Fetch Data", command=self.fetch_data)
         self.fetch_button.pack()
 
-        self.status_label = tk.Label(self.master, text="")
+        self.status_label = tk.Label(self.parent, text="")
         self.status_label.pack()
 
-        self.log_text = scrolledtext.ScrolledText(self.master, height=10)
+        self.log_text = scrolledtext.ScrolledText(self.parent, height=10)
         self.log_text.pack()
 
-        self.fetch_all_button = tk.Button(self.master, text="Fetch All Data", command=self.fetch_all_data)
+        self.fetch_all_button = tk.Button(self.parent, text="Fetch All Data", command=self.fetch_all_data)
         self.fetch_all_button.pack()
 
         # Toggle Debug Mode Button
-        self.debug_mode_button = tk.Button(self.master, text="Toggle Debug Mode", command=self.toggle_debug_mode)
+        self.debug_mode_button = tk.Button(self.parent, text="Toggle Debug Mode", command=self.toggle_debug_mode)
         self.debug_mode_button.pack()
+
 
     def fetch_data(self):
         if not self.validate_inputs():
@@ -161,18 +161,3 @@ class DataFetchTab:
         else:
             self.debug_mode_button.config(text="Debug Mode: OFF")
 
-# Load configuration
-config = configparser.ConfigParser()
-config.read('config.ini')  # Replace with your config file path
-
-# Set debug mode from config
-is_debug_mode = config.getboolean('Settings', 'DebugMode', fallback=False)
-
-# Create the main Tkinter window
-root = tk.Tk()
-
-# Create an instance of your DataFetchTab
-app = DataFetchTab(root, config, is_debug_mode)
-
-# Run the Tkinter event loop
-root.mainloop()

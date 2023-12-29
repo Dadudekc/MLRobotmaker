@@ -1,3 +1,4 @@
+#data_processing_tab.py
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
@@ -6,11 +7,10 @@ import configparser
 from Data_processing.technical_indicators import TechnicalIndicators
 from Utils import MLRobotUtils, update_status, auto_generate_save_path
 
-
 class DataProcessingTab:
-    def __init__(self, master):
-        self.master = master
-        self.config = self.load_config()
+    def __init__(self, parent, config):
+        self.parent = parent
+        self.config = config
         self.debug_mode = False  # Initialize debug mode to False
 
         # Initialize MLRobotUtils with debug mode state
@@ -19,14 +19,9 @@ class DataProcessingTab:
         # Initialize GUI components
         self.setup_gui()
 
-    def load_config(self):
-        config = configparser.ConfigParser()
-        config.read('config.ini')  # Replace with the actual path to your config file
-        return config
-
     def setup_gui(self):
         # Frame for CSV File Selection
-        file_frame = tk.Frame(self.master)
+        file_frame = tk.Frame(self.parent)
         file_frame.pack(fill=tk.X, padx=10, pady=5)
 
         tk.Label(file_frame, text="Select CSV File:").pack(side=tk.LEFT)
@@ -37,8 +32,8 @@ class DataProcessingTab:
         self.browse_button.pack(side=tk.LEFT, padx=(0,10))
 
         # Selected Features/Indicators
-        tk.Label(self.master, text="Select Features/Indicators:").pack()
-        self.features_listbox = tk.Listbox(self.master, selectmode=tk.MULTIPLE)
+        tk.Label(self.parent, text="Select Features/Indicators:").pack()
+        self.features_listbox = tk.Listbox(self.parent, selectmode=tk.MULTIPLE)
         self.features_listbox.pack()
 
         # Populate the listbox with features/indicators
@@ -77,32 +72,32 @@ class DataProcessingTab:
             self.features_listbox.insert(tk.END, feature)
 
         # Select All Button
-        self.select_all_button = tk.Button(self.master, text="Select All", command=self.select_all_features)
+        self.select_all_button = tk.Button(self.parent, text="Select All", command=self.select_all_features)
         self.select_all_button.pack()
 
         # Unselect All Button
-        self.unselect_all_button = tk.Button(self.master, text="Unselect All", command=self.unselect_all_features)
+        self.unselect_all_button = tk.Button(self.parent, text="Unselect All", command=self.unselect_all_features)
         self.unselect_all_button.pack()
 
         # Status Output
-        self.status_output = tk.Text(self.master, height=5)
+        self.status_output = tk.Text(self.parent, height=5)
         self.status_output.pack(fill='both', expand=True, padx=5, pady=5)
 
         # Data Processing Log
-        tk.Label(self.master, text="Data Processing Log:").pack()
-        self.log_text = scrolledtext.ScrolledText(self.master, height=10)
+        tk.Label(self.parent, text="Data Processing Log:").pack()
+        self.log_text = scrolledtext.ScrolledText(self.parent, height=10)
         self.log_text.pack()
 
         # Start Processing Button
-        self.start_button = tk.Button(self.master, text="Start Processing", command=self.process_data)
+        self.start_button = tk.Button(self.parent, text="Start Processing", command=self.process_data)
         self.start_button.pack(fill='x', padx=5, pady=5)
 
         # Clear Logs Button
-        self.clear_logs_button = tk.Button(self.master, text="Clear Logs", command=self.clear_logs)
+        self.clear_logs_button = tk.Button(self.parent, text="Clear Logs", command=self.clear_logs)
         self.clear_logs_button.pack()
 
         # Toggle Debug Mode Button
-        self.debug_mode_button = tk.Button(self.master, text="Toggle Debug Mode", command=self.toggle_debug_mode)
+        self.debug_mode_button = tk.Button(self.parent, text="Toggle Debug Mode", command=self.toggle_debug_mode)
         self.debug_mode_button.pack()
 
     def browse_file(self):
@@ -270,11 +265,20 @@ def generate_save_path(file_path, config):
     # You can customize this logic as needed.
     return save_path
 
-# Create the main Tkinter window
-root = tk.Tk()
+def main():
+    # Load configuration
+    config = configparser.ConfigParser()
+    config.read('config.ini')  # Replace with your config file path
 
-# Create an instance of your DataProcessingTab
-app = DataProcessingTab(root)
+    # Create the main Tkinter window
+    root = tk.Tk()
+    root.title("ML Robot")
 
-# Run the Tkinter event loop
-root.mainloop()
+    # Create an instance of DataProcessingTab, passing both root and config
+    app = DataProcessingTab(root, config)
+
+    # Run the Tkinter event loop
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()

@@ -1,4 +1,6 @@
 #model_training_tab.py
+
+
 import tkinter as tk
 import configparser
 import threading
@@ -22,33 +24,68 @@ from sklearn.ensemble import RandomForestRegressor  # or RandomForestClassifier
 
 
 class ModelTrainingTab(tk.Frame):
-    def __init__(self, parent, scaler_options):
+    def __init__(self, parent, config, scaler_options):
         super().__init__(parent)
+        self.config = config
         self.scaler_options = scaler_options
-        self.root = root
-        self.frame = tk.Frame(self.root)
-        self.frame.pack(fill=tk.BOTH, expand=True)
-
-        # Initialize debug mode state
-        self.utils = MLRobotUtils(is_debug_mode=config.getboolean('Settings', 'DebugMode', fallback=False))
-        self.create_widgets()
-
-        # Initialize epochs label and entry
-        self.epochs_label = tk.Label(self.frame, text="Epochs:")
-        self.epochs_label.pack_forget()
-        self.epochs_entry = tk.Entry(self.frame)
-        self.epochs_entry.pack_forget()
-
-        # Initialize debug mode state
         self.trained_models = []
         self.trained_model = None
+        self.utils = MLRobotUtils(is_debug_mode=config.getboolean('Settings', 'DebugMode', fallback=False))
+        self.setup_model_training_tab()
+
+    def setup_model_training_tab(self):
+        # GUI setup and widgets
+        tk.Label(self, text="Model Training", font=("Helvetica", 16)).pack(pady=10)
+
+        # Data File Path
+        tk.Label(self, text="Enter Data File Path:").pack(pady=5)
+        self.data_file_entry = tk.Entry(self)
+        self.data_file_entry.pack(pady=5)
+        tk.Button(self, text="Browse Data File", command=self.browse_data_file).pack(pady=5)
+
+        # Scaler Type
+        tk.Label(self, text="Select Scaler Type:").pack()
+        self.scaler_type_var = tk.StringVar()
+        scaler_type_dropdown = ttk.Combobox(self, textvariable=self.scaler_type_var, values=self.scaler_options)
+        scaler_type_dropdown.pack()
+
+        # Model Type
+        tk.Label(self, text="Select Model Type:").pack()
+        self.model_type_var = tk.StringVar()
+        model_type_dropdown = ttk.Combobox(self, textvariable=self.model_type_var, values=["linear_regression", "random_forest", "neural_network"])
+        model_type_dropdown.pack()
+        model_type_dropdown.bind("<<ComboboxSelected>>", self.show_epochs_input)
+
+        # Start Training Button
+        tk.Button(self, text="Start Training", command=self.start_training).pack(pady=10)
+
+        # Progress Bar, Model Info, Error Label, Log Text, Save Button
+        self.progress = ttk.Progressbar(self, orient=tk.HORIZONTAL, length=300, mode='determinate')
+        self.progress.pack()
+        self.model_info_text = tk.Text(self, height=5)
+        self.model_info_text.pack()
+        self.error_label = tk.Label(self, text="", fg="red")
+        self.error_label.pack()
+        self.log_text = scrolledtext.ScrolledText(self, height=10)
+        self.log_text.pack()
+        tk.Button(self, text="Save Trained Model", command=self.save_trained_model).pack(pady=5)
+
+        # Debug Mode Button
+        self.debug_mode_button = tk.Button(self, text="Toggle Debug Mode", command=self.toggle_debug_mode)
+        self.debug_mode_button.pack()
+
+        # Initialize epochs label and entry
+        self.epochs_label = tk.Label(self, text="Epochs:")
+        self.epochs_label.pack_forget()
+        self.epochs_entry = tk.Entry(self)
+        self.epochs_entry.pack_forget()
 
     def show_epochs_input(self, event):
         selected_model_type = self.model_type_var.get()
         if selected_model_type == "neural_network":
             if not self.epochs_label:
-                self.epochs_label = tk.Label(self.frame, text="Epochs:")
-                self.epochs_entry = tk.Entry(self.frame)
+                self.epochs_label = tk.Label(self, text="Epochs:")
+                self.epochs_entry = tk.Entry(self)
 
             self.epochs_label.pack()
             self.epochs_entry.pack()
@@ -58,30 +95,37 @@ class ModelTrainingTab(tk.Frame):
                 self.epochs_entry.pack_forget()
 
     def start_training(self):
-        if self.validate_inputs():
-            data_file_path = self.data_file_entry.get()
-            scaler_type = self.scaler_type_var.get()
-            model_type = self.model_type_var.get()
-            epochs_str = self.epochs_entry.get()
+        if not self.validate_inputs():
+            return  # Exit if inputs are not valid
 
-            # Validate the epochs input
-            if model_type == "neural_network":
-                if not epochs_str.isdigit() or int(epochs_str) <= 0:
-                    self.utils.log_message("Epochs should be a positive integer.", self.log_text)
-                    return  # Exit the function if the epochs input is invalid
-                epochs = int(epochs_str)
-            else:
-                epochs = 1  # Default value for other model types
+        data_file_path = self.data_file_entry.get()
+        scaler_type = self.scaler_type_var.get()
+        model_type = self.model_type_var.get()
+        epochs = self.get_epochs(model_type)
 
-            try:
-                self.utils.log_message("Starting model training...", self.log_text)
-                self.update_progress_bar(0)  # Correctly calling the method
+        if epochs is None:
+            return  # Exit if epochs are invalid for neural network
 
-                # Run the training in a separate thread
-                threading.Thread(target=lambda: self.train_model(data_file_path, scaler_type, model_type, epochs)).start()
-            except Exception as e:
-                self.utils.log_message(f"Error in model training: {str(e)}", self.log_text)
-                print(f"Debug: Error in model training - {str(e)}")
+        self.initiate_model_training(data_file_path, scaler_type, model_type, epochs)
+
+    def get_epochs(self, model_type):
+        if model_type != "neural_network":
+            return 1  # Default value for other model types
+
+        epochs_str = self.epochs_entry.get()
+        if not epochs_str.isdigit() or int(epochs_str) <= 0:
+            self.utils.log_message("Epochs should be a positive integer.", self.log_text)
+            return None
+        return int(epochs_str)
+
+    def initiate_model_training(self, data_file_path, scaler_type, model_type, epochs):
+        try:
+            self.utils.log_message("Starting model training...", self.log_text)
+            self.update_progress_bar(0)
+            threading.Thread(target=lambda: self.train_model(data_file_path, scaler_type, model_type, epochs)).start()
+        except Exception as e:
+            self.utils.log_message(f"Error in model training: {str(e)}", self.log_text)
+            print(f"Debug: Error in model training - {str(e)}")
 
 
     # Progress Bar
@@ -93,7 +137,7 @@ class ModelTrainingTab(tk.Frame):
         value (int): The progress value to set on the progress bar.
         """
         self.progress['value'] = value
-        self.root.update_idletasks() 
+        self.update_idletasks() 
 
     def toggle_debug_mode(self):
         # Toggle debug mode state
@@ -117,54 +161,6 @@ class ModelTrainingTab(tk.Frame):
             'normalizer': Normalizer()
         }
         return scalers.get(scaler_type, StandardScaler())
-
-    def create_widgets(self):
-        # GUI setup and widgets
-        tk.Label(self.frame, text="Model Training", font=("Helvetica", 16)).pack(pady=10)
-        
-        tk.Label(self.frame, text="Enter Data File Path:").pack(pady=5)
-        self.data_file_entry = tk.Entry(self.frame)
-        self.data_file_entry.pack(pady=5)
-
-        tk.Button(self.frame, text="Browse Data File", command=self.browse_data_file).pack(pady=5)
-
-        tk.Label(self.frame, text="Select Scaler Type:").pack()
-        self.scaler_type_var = tk.StringVar()
-        scaler_type_dropdown = ttk.Combobox(self.frame, textvariable=self.scaler_type_var, values=self.scaler_options)
-        scaler_type_dropdown.pack()
-        tk.Label(self.frame, text="Select Model Type:").pack()
-        self.model_type_var = tk.StringVar()
-        model_type_dropdown = ttk.Combobox(self.frame, textvariable=self.model_type_var, values=["linear_regression", "random_forest", "neural_network"])
-        model_type_dropdown.pack()
-
-
-        # Bind the show_epochs_input function to the model type dropdown's <<ComboboxSelected>> event
-        model_type_dropdown.bind("<<ComboboxSelected>>", self.show_epochs_input)
-
-        tk.Button(self.frame, text="Start Training", command=self.start_training).pack(pady=10)
-
-        # Progress Bar
-        self.progress = ttk.Progressbar(self.frame, orient=tk.HORIZONTAL, length=300, mode='determinate')
-        self.progress.pack()
-
-        # Model Information Text
-        self.model_info_text = tk.Text(self.frame, height=5)
-        self.model_info_text.pack()
-
-        # Error Label
-        self.error_label = tk.Label(self.frame, text="", fg="red")
-        self.error_label.pack()
-
-        # Add this code inside the create_widgets method
-        self.debug_mode_button = tk.Button(self.frame, text="Toggle Debug Mode", command=self.toggle_debug_mode)
-        self.debug_mode_button.pack()
-
-        # Log Text
-        self.log_text = scrolledtext.ScrolledText(self.frame, height=10)
-        self.log_text.pack()
-
-        # Save button
-        tk.Button(self.frame, text="Save Trained Model", command=self.save_trained_model).pack(pady=5)
 
     def save_trained_model(self):
         if self.trained_model is not None:
@@ -276,169 +272,43 @@ class ModelTrainingTab(tk.Frame):
             self.utils.log_message(f"Error in model training: {str(e)}", self.log_text)
             print(f"Debug: Error in model training - {str(e)}")
 
+    def compare_models(self, X_test, y_test):
+        try:
+            if len(self.trained_models) > 1:
+                for model in self.trained_models:
+                    evaluation_results = self.evaluate_model(model, X_test, y_test)
+                    print(evaluation_results)
+                # Further logic...
+            else:
+                self.utils.log_message("Not enough models to compare. Train more models.", self.log_text)
+        except Exception as e:
+            print(f"Error during model comparison: {e}")
+            raise
 
+    def evaluate_model(self, model, X_test, y_test):
+        from sklearn.metrics import mean_squared_error, r2_score
 
-# Modify compare_models function as needed
-# In compare_models function, ensure X_test and y_test are defined and populated
-def compare_models(X_test, y_test):
-    try:
-        if len(trained_models) > 1:
-            for model in trained_models:
-                evaluation_results = evaluate_model(model, X_test, y_test, task_type='regression')
-                print(evaluation_results)
-            # You can extend this loop to compare models based on specific metrics
-        else:
-            utils.log_message("Not enough models to compare. Train more models.", log_text)
-    except Exception as e:
-        print(f"Error during model comparison: {e}")
-        raise
+        predictions = model.predict(X_test)
+        mse = mean_squared_error(y_test, predictions)
+        r2 = r2_score(y_test, predictions)
 
+        return {"Mean Squared Error": mse, "R^2 Score": r2}
 
-# Modify setup_model_training_tab to use MLRobotUtils methods
-def setup_model_training_tab(tab):
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-
-    utils = MLRobotUtils(is_debug_mode=True)  # Create an instance of MLRobotUtils
-
-    # Browse Data File Function
-    def browse_data_file_wrapper():
-        data_file_path = browse_data_file()
-        if data_file_path:
-            data_file_entry.delete(0, tk.END)
-            data_file_entry.insert(0, data_file_path)
-
-    tk.Label(tab, text="Select Scaler Type:").pack()
-    scaler_type_var = tk.StringVar()
-    scaler_type_dropdown = ttk.Combobox(tab, textvariable=scaler_type_var, values=scaler_options)
-    scaler_type_dropdown.pack()
-
-    # Model Selection Dropdown
-    tk.Label(tab, text="Select Model Type:").pack()
-    model_type_var = tk.StringVar()
-    model_type_dropdown = ttk.Combobox(tab, textvariable=model_type_var, values=["linear_regression", "random_forest", "neural_network"])
-    model_type_dropdown.pack()
-
-    progress = ttk.Progressbar(tab, orient=tk.HORIZONTAL, length=300, mode='determinate')
-    progress.pack()
-
-    # Model Information Text
-    model_info_text = tk.Text(tab, height=5)
-    model_info_text.pack()
-
-    # Error Label
-    error_label = tk.Label(tab, text="", fg="red")
-    error_label.pack()
-
-    # Log Text
-    log_text = scrolledtext.ScrolledText(tab, height=10)
-    log_text.pack()
-
-    # Browse Data File Button
-    browse_data_button = tk.Button(tab, text="Browse Data File", command=browse_data_file_wrapper)
-    browse_data_button.pack()
-
-    # Example of using MLRobotUtils method
-    utils.log_message("Setup for model training tab is complete.", log_text)
-
-
-
-
-
-# Modify browse_data_file to use MLRobotUtils methods
-def browse_data_file(self):
-    utils = MLRobotUtils(is_debug_mode=True)  # Create an instance of MLRobotUtils
-    try:
-        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+    def browse_data_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])
         if file_path:
             self.data_file_entry.delete(0, tk.END)  # Clear any existing entry
             self.data_file_entry.insert(0, file_path)  # Insert the selected file path into the entry field
-            utils.log_message(f"Selected data file: {file_path}", self.log_text)
-    except Exception as e:
-        utils.log_message(f"Error while browsing data file: {str(e)}", self.log_text)
-        print(f"Debug: Error while browsing data file - {str(e)}")
+            self.utils.log_message(f"Selected data file: {file_path}", self.log_text)
 
-
-def save_trained_model(self):
-    if self.trained_model is not None:
-        file_path = filedialog.asksaveasfilename(defaultextension=".model",
-                                                filetypes=[("Model Files", "*.model"), ("All Files", "*.*")])
-        if file_path:
-            save_model(self.trained_model, file_path)
-            self.trained_models.append((self.trained_model, file_path))  # Save the model and its file path
-            self.utils.log_message(f"Model saved to {file_path}", self.log_text)
-
-def load_model(model_file_path: str, raise_exception: bool = False) -> Optional[Any]:
-    """
-    Load a machine learning model from a file.
-
-    Parameters:
-    model_file_path (str): The path to the model file.
-    raise_exception (bool): If True, raises an exception on failure. Otherwise, returns None.
-
-    Returns:
-    Optional[Any]: The loaded model or None if an error occurs and raise_exception is False.
-
-    Raises:
-    Exception: Various exceptions related to file handling or model loading, if raise_exception is True.
-    """
-    try:
-        loaded_model = joblib.load(model_file_path)
-        return loaded_model
-    except FileNotFoundError:
-        logging.error(f"Model file not found: {model_file_path}")
-    except joblib.JoblibException as e:
-        logging.error(f"Error loading model from {model_file_path}: {str(e)}")
-    except Exception as e:
-        logging.error(f"Unknown error loading model from {model_file_path}: {str(e)}")
-
-    if raise_exception:
-        raise
-    else:
-        return None
-
-
-
-def compare_models(X_test, y_test):
-    try:
-        if len(trained_models) > 1:
-            for model in trained_models:
-                evaluation_results = evaluate_model(model, X_test, y_test, task_type='regression')
-                print(evaluation_results)
-            # You can extend this loop to compare models based on specific metrics
+    def save_trained_model(self):
+        if self.trained_model is not None:
+            file_path = filedialog.asksaveasfilename(defaultextension=".model",
+                                                    filetypes=[("Model Files", "*.model"), ("All Files", "*.*")])
+            if file_path:
+                # Assuming save_model is a function that saves your model
+                save_model(self.trained_model, file_path)
+                self.trained_models.append(self.trained_model)  # Optionally add the model to the trained_models list
+                self.utils.log_message(f"Model saved to {file_path}", self.log_text)
         else:
-            utils.log_message("Not enough models to compare. Train more models.", log_text)
-    except Exception as e:
-        print(f"Error during model comparison: {e}")
-        raise
-
-
-# Initialize global variables
-def load_config():
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-    return config
-config = load_config()
-
-trained_models = []
-trained_model = None
-
-# Create the main application window
-root = tk.Tk()
-root.title("Model Training")
-
-# Create a tabbed interface
-notebook = ttk.Notebook(root)
-tab1 = ttk.Frame(notebook)
-notebook.add(tab1, text="Model Training")
-notebook.pack(fill=tk.BOTH, expand=True)
-
-# Define scaler_options
-scaler_options = ['standard', 'minmax', 'robust', 'quantile', 'power', 'normalizer', 'maxabs']
-
-# Create the ModelTrainingTab instance with scaler_options
-model_training_tab = ModelTrainingTab(tab1, scaler_options)
-
-
-# Start the Tkinter main loop
-root.mainloop()
+            self.utils.log_message("No trained model available to save.", self.log_text)
