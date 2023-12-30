@@ -24,17 +24,30 @@ class DataProcessingTab:
         file_frame = tk.Frame(self.parent)
         file_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        tk.Label(file_frame, text="Select CSV File:").pack(side=tk.LEFT)
+        tk.Label(file_frame, text="Select CSV File:").pack(side=tk.LEFT, padx=(0, 5))
         self.file_path_entry = tk.Entry(file_frame, width=50)
-        self.file_path_entry.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(10,0))
-
+        self.file_path_entry.pack(side=tk.LEFT, expand=True, fill=tk.X)
         self.browse_button = tk.Button(file_frame, text="Browse", command=self.browse_file)
-        self.browse_button.pack(side=tk.LEFT, padx=(0,10))
+        self.browse_button.pack(side=tk.LEFT)
 
-        # Selected Features/Indicators
-        tk.Label(self.parent, text="Select Features/Indicators:").pack()
-        self.features_listbox = tk.Listbox(self.parent, selectmode=tk.MULTIPLE)
-        self.features_listbox.pack()
+        # Frame for Features/Indicators
+        features_frame = tk.Frame(self.parent)
+        features_frame.pack(padx=10, pady=(0, 5))
+
+        tk.Label(features_frame, text="Select Features/Indicators:").pack(anchor=tk.W)
+        self.features_listbox = tk.Listbox(features_frame, selectmode=tk.MULTIPLE, height=15)
+        self.features_listbox.pack(side=tk.LEFT, padx=(0, 10))
+
+
+        # Buttons for Start Processing, Clear Logs, and Toggle Debug Mode
+        buttons_frame = tk.Frame(self.parent)
+        buttons_frame.pack(pady=5)
+        self.start_button = tk.Button(buttons_frame, text="Start Processing", command=self.process_data)
+        self.start_button.pack(side=tk.LEFT, fill='x', padx=(0, 5))
+        self.clear_logs_button = tk.Button(buttons_frame, text="Clear Logs", command=self.clear_logs)
+        self.clear_logs_button.pack(side=tk.LEFT)
+
+
 
         # Populate the listbox with features/indicators
         features = [
@@ -71,34 +84,27 @@ class DataProcessingTab:
         for feature in features:
             self.features_listbox.insert(tk.END, feature)
 
-        # Select All Button
-        self.select_all_button = tk.Button(self.parent, text="Select All", command=self.select_all_features)
+        # Buttons for Select All and Unselect All
+        buttons_frame = tk.Frame(features_frame)
+        buttons_frame.pack(side=tk.RIGHT)
+        self.select_all_button = tk.Button(buttons_frame, text="Select All", command=self.select_all_features)
         self.select_all_button.pack()
-
-        # Unselect All Button
-        self.unselect_all_button = tk.Button(self.parent, text="Unselect All", command=self.unselect_all_features)
+        self.unselect_all_button = tk.Button(buttons_frame, text="Unselect All", command=self.unselect_all_features)
         self.unselect_all_button.pack()
-
-        # Status Output
-        self.status_output = tk.Text(self.parent, height=5)
-        self.status_output.pack(fill='both', expand=True, padx=5, pady=5)
-
-        # Data Processing Log
-        tk.Label(self.parent, text="Data Processing Log:").pack()
-        self.log_text = scrolledtext.ScrolledText(self.parent, height=10)
-        self.log_text.pack()
-
-        # Start Processing Button
-        self.start_button = tk.Button(self.parent, text="Start Processing", command=self.process_data)
-        self.start_button.pack(fill='x', padx=5, pady=5)
-
-        # Clear Logs Button
-        self.clear_logs_button = tk.Button(self.parent, text="Clear Logs", command=self.clear_logs)
-        self.clear_logs_button.pack()
 
         # Toggle Debug Mode Button
         self.debug_mode_button = tk.Button(self.parent, text="Toggle Debug Mode", command=self.toggle_debug_mode)
         self.debug_mode_button.pack()
+            
+        if hasattr(self, 'log_text'):
+            self.log_text.delete('1.0', tk.END)  # Clear existing content
+        else:
+            # Create the Data Processing Log frame and ScrolledText only if it does not exist
+            log_frame = tk.Frame(self.parent)
+            log_frame.pack(padx=10, pady=(0, 5))
+            tk.Label(log_frame, text="Data Processing Log:").pack(anchor=tk.W)
+            self.log_text = scrolledtext.ScrolledText(log_frame, height=10)
+            self.log_text.pack(fill='both', expand=True)
 
     def browse_file(self):
         # Open a file dialog to choose a CSV file
@@ -140,23 +146,21 @@ class DataProcessingTab:
 
         if not file_path:
             messagebox.showwarning("Input Error", "Please select a CSV file.")
+            self.log_text.insert(tk.END, "Input Error: Please select a CSV file.\n")
             return
 
         if not selected_features:
             messagebox.showwarning("Input Error", "Please select at least one feature/indicator.")
+            self.log_text.insert(tk.END, "Input Error: Please select at least one feature/indicator.\n")
             return
 
         try:
             df = pd.read_csv(file_path)
-            self.utils.log_message("CSV file loaded successfully.", self.log_text)
+            self.log_text.insert(tk.END, "CSV file loaded successfully.\n")
         except Exception as e:
-            self.utils.log_message(f"Error loading CSV file: {str(e)}", self.log_text)
+            self.log_text.insert(tk.END, f"Error loading CSV file: {str(e)}\n")
             messagebox.showerror("Loading Error", f"Error loading CSV file: {str(e)}")
             return
-    
-        # Clear previous status messages
-        self.status_output.delete('1.0', tk.END)
-        self.status_output.insert(tk.END, "Processing...\n")
 
         # Apply selected features
         for feature in selected_features:
@@ -252,19 +256,31 @@ class DataProcessingTab:
             
             df.to_csv(save_path, index=False)
             self.utils.log_message(f"Processed data saved to '{save_path}'.", self.log_text)
-            update_status(self.status_output, "Data processing completed.")
+            self.log_text.insert(tk.END, "Data processing completed.\n")  # Log the completion message
         except Exception as e:
             self.utils.log_message(f"Error during data processing: {str(e)}", self.log_text)
             messagebox.showerror("Processing Error", str(e))
-
 # Function to generate the save path based on file_path and config
-def generate_save_path(file_path, config):
-    # Implement your logic to generate the save path based on the input file_path and config
-    # For example:
-    # save_path = "processed_data.csv"
-    # You can customize this logic as needed.
-    return save_path
 
+    def generate_save_path(file_path, config):
+        # Extract the directory and filename from the input file path
+        directory, filename = os.path.split(file_path)
+
+        # Split the filename into name and extension
+        name, extension = os.path.splitext(filename)
+
+        # Optionally, you can use a directory specified in the config
+        # For example, if your config has a section "SAVE_PATH_SECTION" with a key "save_path_dir"
+        save_directory = config.get('SAVE_PATH_SECTION', 'save_path_dir', fallback=directory)
+
+        # Construct the new filename by appending '_processed'
+        new_filename = f"{name}_processed{extension}"
+
+        # Combine the directory and new filename to form the full save path
+        save_path = os.path.join(save_directory, new_filename)
+
+        return save_path
+    
 def main():
     # Load configuration
     config = configparser.ConfigParser()

@@ -1,6 +1,8 @@
 #model_training_tab.py
 
-
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, classification_report, confusion_matrix
+import seaborn as sns
 import tkinter as tk
 import configparser
 import threading
@@ -20,7 +22,7 @@ from sklearn.linear_model import LinearRegression
 from tensorflow.keras.models import Sequential as NeuralNetwork
 from tensorflow.keras.layers import Dense
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor  # or RandomForestClassifier
+from sklearn.ensemble import RandomForestRegressor
 
 
 class ModelTrainingTab(tk.Frame):
@@ -57,16 +59,16 @@ class ModelTrainingTab(tk.Frame):
         model_type_dropdown.bind("<<ComboboxSelected>>", self.show_epochs_input)
 
         # Start Training Button
-        tk.Button(self, text="Start Training", command=self.start_training).pack(pady=10)
+        self.start_training_button = tk.Button(self, text="Start Training", command=self.start_training)
+        self.start_training_button.pack(pady=10)
+
 
         # Progress Bar, Model Info, Error Label, Log Text, Save Button
         self.progress = ttk.Progressbar(self, orient=tk.HORIZONTAL, length=300, mode='determinate')
         self.progress.pack()
-        self.model_info_text = tk.Text(self, height=5)
-        self.model_info_text.pack()
         self.error_label = tk.Label(self, text="", fg="red")
         self.error_label.pack()
-        self.log_text = scrolledtext.ScrolledText(self, height=10)
+        self.log_text = scrolledtext.ScrolledText(self, height=15)
         self.log_text.pack()
         tk.Button(self, text="Save Trained Model", command=self.save_trained_model).pack(pady=5)
 
@@ -106,7 +108,41 @@ class ModelTrainingTab(tk.Frame):
         if epochs is None:
             return  # Exit if epochs are invalid for neural network
 
-        self.initiate_model_training(data_file_path, scaler_type, model_type, epochs)
+        self.start_training_button.config(state='disabled')
+        threading.Thread(target=lambda: self.train_model_and_enable_button(data_file_path, scaler_type, model_type, epochs)).start()
+        
+    def train_model_and_enable_button(self, data_file_path, scaler_type, model_type, epochs):
+        try:
+            # Load and preprocess data
+            X_train, X_test, y_train, y_test = self.preprocess_data(data_file_path, scaler_type)
+
+            # Initialize and train the model based on the selected type
+            if model_type == "linear_regression":
+                model = LinearRegression()
+                model.fit(X_train, y_train)
+            elif model_type == "neural_network":
+                model = NeuralNetwork()
+                model.add(Dense(64, activation='relu', input_shape=(X_train.shape[1],)))
+                model.add(Dense(1))
+                model.compile(optimizer='adam', loss='mean_squared_error')
+                model.fit(X_train, y_train, epochs=epochs)
+            elif model_type == "random_forest":
+                model = RandomForestRegressor()
+                model.fit(X_train, y_train)
+
+            # Update UI elements to reflect that training is complete
+            self.update_progress_bar(100)
+            self.trained_model = model
+            self.utils.log_message("Model training completed.", self.log_text)
+
+        except Exception as e:
+            # Log any exceptions that occur during model training
+            self.utils.log_message(f"Error in model training: {str(e)}", self.log_text)
+            print(f"Debug: Error in model training - {str(e)}")
+        finally:
+            # Re-enable the Start Training button regardless of whether training succeeded or an exception was caught
+            self.start_training_button.config(state='normal')
+
 
     def get_epochs(self, model_type):
         if model_type != "neural_network":
@@ -169,16 +205,20 @@ class ModelTrainingTab(tk.Frame):
             if file_path:
                 # Assuming save_model is a function that saves your model
                 save_model(self.trained_model, file_path)
+                scaler_file_path = file_path + "_scaler.joblib"
+                joblib.dump(self.trained_scaler, scaler_file_path)
                 self.utils.log_message(f"Model saved to {file_path}", self.log_text)
         else:
             self.utils.log_message("No trained model available to save.", self.log_text)
 
     def browse_data_file(self):
-        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+        # Open a file dialog and update the data file entry with the selected file path
+        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])
         if file_path:
-            self.data_file_entry.delete(0, tk.END)  # Clear any existing entry
-            self.data_file_entry.insert(0, file_path)  # Insert the selected file path into the entry field
+            self.data_file_entry.delete(0, tk.END)  # Clear any existing text
+            self.data_file_entry.insert(0, file_path)  # Insert the selected file path
             self.utils.log_message(f"Selected data file: {file_path}", self.log_text)
+
 
     def validate_inputs(self):
         data_file_path = self.data_file_entry.get()
@@ -265,6 +305,7 @@ class ModelTrainingTab(tk.Frame):
             # Update progress bar and assign trained model
             self.update_progress_bar(100)
             self.trained_model = model
+            self.trained_scaler = scaler
 
             self.utils.log_message("Model training completed.", self.log_text)
 
@@ -285,14 +326,53 @@ class ModelTrainingTab(tk.Frame):
             print(f"Error during model comparison: {e}")
             raise
 
-    def evaluate_model(self, model, X_test, y_test):
-        from sklearn.metrics import mean_squared_error, r2_score
+    def evaluate_model(self, model, X_test, y_test, model_type):
+        """
+        Evaluate the model with more metrics and provide visualizations.
+
+        Parameters:
+        - model: The trained model.
+        - X_test: Test features.
+        - y_test: True values for test features.
+        - model_type: Type of the model ('regression' or 'classification').
+        """
 
         predictions = model.predict(X_test)
-        mse = mean_squared_error(y_test, predictions)
-        r2 = r2_score(y_test, predictions)
 
-        return {"Mean Squared Error": mse, "R^2 Score": r2}
+        # For Regression
+        if model_type == 'regression':
+            mse = mean_squared_error(y_test, predictions)
+            r2 = r2_score(y_test, predictions)
+            self.plot_regression_results(y_test, predictions)  # Visualization for regression
+            return {"Mean Squared Error": mse, "R^2 Score": r2}
+        
+        # For Classification
+        elif model_type == 'classification':
+            accuracy = accuracy_score(y_test, predictions)
+            report = classification_report(y_test, predictions)
+            self.plot_confusion_matrix(y_test, predictions)  # Visualization for classification
+            return {"Accuracy": accuracy, "Classification Report": report}
+        else:
+            self.utils.log_message("Invalid model type provided.", self.log_text)
+            return {}
+
+    def plot_regression_results(self, y_true, y_pred):
+        """Plotting function for regression results."""
+        plt.scatter(y_true, y_pred, alpha=0.3)
+        plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], '--r')
+        plt.xlabel('True Value')
+        plt.ylabel('Predicted Value')
+        plt.title('Regression Results')
+        plt.show()
+
+    def plot_confusion_matrix(self, y_true, y_pred):
+        """Plotting function for confusion matrix (for classification)."""
+        matrix = confusion_matrix(y_true, y_pred)
+        sns.heatmap(matrix, annot=True, fmt='g')
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
+        plt.title('Confusion Matrix')
+        plt.show()
 
     def browse_data_file(self):
         file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])
@@ -312,3 +392,13 @@ class ModelTrainingTab(tk.Frame):
                 self.utils.log_message(f"Model saved to {file_path}", self.log_text)
         else:
             self.utils.log_message("No trained model available to save.", self.log_text)
+
+    def plot_regression_results(self, y_true, y_pred):
+        """Plotting function for regression results."""
+        plt.figure(figsize=(8, 6))
+        plt.scatter(y_true, y_pred, alpha=0.5)
+        plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 'k--', lw=2)
+        plt.xlabel('True Value')
+        plt.ylabel('Predicted Value')
+        plt.title('Regression Results: True vs Predicted')
+        plt.show()
