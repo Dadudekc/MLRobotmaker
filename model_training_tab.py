@@ -63,9 +63,7 @@ class ModelTrainingTab(tk.Frame):
         self.start_training_button.pack(pady=10)
 
 
-        # Progress Bar, Model Info, Error Label, Log Text, Save Button
-        self.progress = ttk.Progressbar(self, orient=tk.HORIZONTAL, length=300, mode='determinate')
-        self.progress.pack()
+        #Model Info, Error Label, Log Text, Save Button
         self.error_label = tk.Label(self, text="", fg="red")
         self.error_label.pack()
         self.log_text = scrolledtext.ScrolledText(self, height=15)
@@ -131,7 +129,6 @@ class ModelTrainingTab(tk.Frame):
                 model.fit(X_train, y_train)
 
             # Update UI elements to reflect that training is complete
-            self.update_progress_bar(100)
             self.trained_model = model
             self.utils.log_message("Model training completed.", self.log_text)
 
@@ -157,23 +154,10 @@ class ModelTrainingTab(tk.Frame):
     def initiate_model_training(self, data_file_path, scaler_type, model_type, epochs):
         try:
             self.utils.log_message("Starting model training...", self.log_text)
-            self.update_progress_bar(0)
             threading.Thread(target=lambda: self.train_model(data_file_path, scaler_type, model_type, epochs)).start()
         except Exception as e:
             self.utils.log_message(f"Error in model training: {str(e)}", self.log_text)
             print(f"Debug: Error in model training - {str(e)}")
-
-
-    # Progress Bar
-    def update_progress_bar(self, value):
-        """
-        Update the progress bar with the given value.
-
-        Parameters:
-        value (int): The progress value to set on the progress bar.
-        """
-        self.progress['value'] = value
-        self.update_idletasks() 
 
     def toggle_debug_mode(self):
         # Toggle debug mode state
@@ -303,7 +287,6 @@ class ModelTrainingTab(tk.Frame):
             model.fit(X_train, y_train)
 
             # Update progress bar and assign trained model
-            self.update_progress_bar(100)
             self.trained_model = model
             self.trained_scaler = scaler
 

@@ -109,14 +109,14 @@ class CustomHyperModel(HyperModel):
 
     def build(self, hp):
         model = keras.Sequential()
-        
+
         # Define the number of units in the first dense layer as a hyperparameter
         units = hp.Int('units', min_value=32, max_value=512, step=32)
         model.add(keras.layers.Dense(units=units, activation='relu', input_shape=(self.input_shape,)))
-        
-        # Add more dense layers or other types of layers as needed
+
+        # Optionally add more dense layers
         # model.add(keras.layers.Dense(units=hp.Int('units_2', min_value=32, max_value=512, step=32), activation='relu'))
-        
+
         # Define the learning rate for the optimizer as a hyperparameter
         learning_rate = hp.Float('learning_rate', min_value=1e-4, max_value=1e-2, sampling='LOG')
         optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
@@ -127,6 +127,7 @@ class CustomHyperModel(HyperModel):
         model.compile(optimizer=optimizer, loss='mean_squared_error')
         
         return model
+
 
 #function to load model    
 def load_model(model_file_path: str, raise_exception: bool = False) -> Optional[Any]:
@@ -164,14 +165,16 @@ def perform_hyperparameter_tuning(X_train, y_train, input_shape, max_trials=5, e
 
     tuner = RandomSearch(
         hypermodel,
-        objective='val_accuracy',
+        objective='val_loss',  # Objective set for regression task
         max_trials=max_trials,
         directory='my_tuner_dir',
         project_name='my_tuner_project'
     )
 
-    tuner.search(X_train, y_train, epochs=epochs)
+    # Use a validation split to calculate 'val_loss'
+    tuner.search(X_train, y_train, epochs=epochs, validation_split=0.2)
     return tuner.get_best_models(num_models=1)[0]
+
 
 
 # Function for hyperparameter tuning
