@@ -7,7 +7,11 @@ import tkinter as tk
 import configparser
 import threading
 from Utils import log_message, auto_generate_save_path, update_status
-from model_development.model_training import train_model, save_model, load_model
+from model_development.model_training import train_model, load_model
+import joblib
+from tensorflow.keras.models import save_model as save_keras_model
+import torch
+import sklearn
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 from Utils import MLRobotUtils
 import logging
@@ -19,7 +23,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 import pandas as pd
 from sklearn.linear_model import LinearRegression
-from tensorflow.keras.models import Sequential as NeuralNetwork
+from tensorflow.keras.models import Sequential as NeuralNetwork, Model
 from tensorflow.keras.layers import Dense
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
@@ -184,16 +188,41 @@ class ModelTrainingTab(tk.Frame):
 
     def save_trained_model(self):
         if self.trained_model is not None:
-            file_path = filedialog.asksaveasfilename(defaultextension=".model",
-                                                    filetypes=[("Model Files", "*.model"), ("All Files", "*.*")])
+            # Determine the file type based on the model type
+            if isinstance(self.trained_model, sklearn.base.BaseEstimator):
+                default_extension = ".joblib"
+                file_types = [("Joblib Files", "*.joblib"), ("All Files", "*.*")]
+            elif isinstance(self.trained_model, Model):
+
+                default_extension = ".h5"
+                file_types = [("HDF5 Files", "*.h5"), ("All Files", "*.*")]
+            elif isinstance(self.trained_model, torch.nn.Module):
+                default_extension = ".pth"
+                file_types = [("PyTorch Model Files", "*.pth"), ("All Files", "*.*")]
+            else:
+                self.utils.log_message("Unsupported model type for saving.", self.log_text)
+                return
+
+            # Open file dialog with dynamic default extension and file types
+            file_path = filedialog.asksaveasfilename(defaultextension=default_extension,
+                                                    filetypes=file_types)
             if file_path:
-                # Assuming save_model is a function that saves your model
-                save_model(self.trained_model, file_path)
+                # Save the model based on its type
+                if isinstance(self.trained_model, sklearn.base.BaseEstimator):
+                    joblib.dump(self.trained_model, file_path)
+                elif isinstance(self.trained_model, keras.Model):
+                    save_keras_model(self.trained_model, file_path)
+                elif isinstance(self.trained_model, torch.nn.Module):
+                    torch.save(self.trained_model.state_dict(), file_path)
+
+                # Save the scaler (optional, remove if not needed)
                 scaler_file_path = file_path + "_scaler.joblib"
                 joblib.dump(self.trained_scaler, scaler_file_path)
+
                 self.utils.log_message(f"Model saved to {file_path}", self.log_text)
         else:
             self.utils.log_message("No trained model available to save.", self.log_text)
+
 
     def browse_data_file(self):
         # Open a file dialog and update the data file entry with the selected file path
@@ -363,18 +392,6 @@ class ModelTrainingTab(tk.Frame):
             self.data_file_entry.delete(0, tk.END)  # Clear any existing entry
             self.data_file_entry.insert(0, file_path)  # Insert the selected file path into the entry field
             self.utils.log_message(f"Selected data file: {file_path}", self.log_text)
-
-    def save_trained_model(self):
-        if self.trained_model is not None:
-            file_path = filedialog.asksaveasfilename(defaultextension=".model",
-                                                    filetypes=[("Model Files", "*.model"), ("All Files", "*.*")])
-            if file_path:
-                # Assuming save_model is a function that saves your model
-                save_model(self.trained_model, file_path)
-                self.trained_models.append(self.trained_model)  # Optionally add the model to the trained_models list
-                self.utils.log_message(f"Model saved to {file_path}", self.log_text)
-        else:
-            self.utils.log_message("No trained model available to save.", self.log_text)
 
     def plot_regression_results(self, y_true, y_pred):
         """Plotting function for regression results."""

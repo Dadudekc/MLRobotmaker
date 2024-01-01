@@ -14,11 +14,11 @@ from keras_tuner import HyperModel
 import tensorflow as tf
 from tensorflow import keras
 from kerastuner.tuners import RandomSearch
-import logging
-import joblib
 from typing import Optional, Any
-
-
+from tensorflow.keras.models import save_model as save_keras_model
+from tensorflow.keras.models import load_model as load_keras_model
+import torch
+import sklearn.base
 
 # Section 2: Model Training Functions
 # Function to train a specific type of model
@@ -86,10 +86,10 @@ def evaluate_model(model, X_test, y_test):
     return {'mean_squared_error': mse, 'r2_score': r2}
 
 # Section 4: Model Saving
-# Function to save the trained model
+
 def save_model(model, filename):
     """
-    Save the trained model to a file.
+    Save the trained model to a file in an appropriate format based on its type.
 
     Args:
         model: The trained model to save.
@@ -98,8 +98,20 @@ def save_model(model, filename):
     Returns:
         None
     """
-    joblib.dump(model, filename)
+    if isinstance(model, sklearn.base.BaseEstimator):
+        # Save scikit-learn models
+        joblib.dump(model, filename + '.joblib')
+    elif isinstance(model, keras.Model):
+        # Save Keras models
+        save_keras_model(model, filename + '.h5')
+    elif isinstance(model, torch.nn.Module):
+        # Save PyTorch models
+        torch.save(model.state_dict(), filename + '.pth')
+    else:
+        raise ValueError("Model type not supported")
+
     logging.info(f"Model saved to {filename}")
+
 
 #section 5: Hypertuning
 
@@ -130,34 +142,36 @@ class CustomHyperModel(HyperModel):
 
 
 #function to load model    
-def load_model(model_file_path: str, raise_exception: bool = False) -> Optional[Any]:
-    """
-    Load a machine learning model from a file.
 
-    Parameters:
-    model_file_path (str): The path to the model file.
-    raise_exception (bool): If True, raises an exception on failure. Otherwise, returns None.
+def load_model(filename):
+    """
+    Load a trained model from a file. The type of the model is inferred from the file extension.
+
+    Args:
+        filename (str): File path of the model to be loaded.
 
     Returns:
-    Optional[Any]: The loaded model or None if an error occurs and raise_exception is False.
-
-    Raises:
-    Exception: Various exceptions related to file handling or model loading, if raise_exception is True.
+        Loaded model.
     """
-    try:
-        loaded_model = joblib.load(model_file_path)
-        return loaded_model
-    except FileNotFoundError:
-        logging.error(f"Model file not found: {model_file_path}")
-    except joblib.JoblibException as e:
-        logging.error(f"Error loading model from {model_file_path}: {str(e)}")
-    except Exception as e:
-        logging.error(f"Unknown error loading model from {model_file_path}: {str(e)}")
-
-    if raise_exception:
-        raise
+    if filename.endswith('.joblib'):
+        # Load scikit-learn models
+        return joblib.load(filename)
+    elif filename.endswith('.h5'):
+        # Load Keras models
+        return load_keras_model(filename)
+    elif filename.endswith('.pth'):
+        # Load PyTorch models
+        # Here, you need to define the model architecture first and then load the state dict.
+        # For example, if the model is an instance of `MyModel` class in PyTorch:
+        # model = MyModel()
+        # model.load_state_dict(torch.load(filename))
+        # return model
+        raise NotImplementedError("PyTorch model loading requires the model architecture. Please implement this part based on your model.")
     else:
-        return None
+        raise ValueError("Unsupported file format or model type")
+
+    logging.info(f"Model loaded from {filename}")
+
 
 # Function for hyperparameter tuning using Keras Tuner
 def perform_hyperparameter_tuning(X_train, y_train, input_shape, max_trials=5, epochs=10):
