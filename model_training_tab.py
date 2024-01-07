@@ -27,6 +27,7 @@ from tensorflow.keras.models import Sequential as NeuralNetwork, Model
 from tensorflow.keras.layers import Dense
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
+from tensorflow.keras.layers import LSTM
 
 
 class ModelTrainingTab(tk.Frame):
@@ -37,6 +38,10 @@ class ModelTrainingTab(tk.Frame):
         self.trained_models = []
         self.trained_model = None
         self.utils = MLRobotUtils(is_debug_mode=config.getboolean('Settings', 'DebugMode', fallback=False))
+        # Initialize Window Size Label and Entry
+        self.window_size_label = tk.Label(self, text="Window Size:")
+        self.window_size_entry = tk.Entry(self)
+        self.trained_scaler = None  # Initialize trained_scaler
         self.setup_model_training_tab()
 
     def setup_model_training_tab(self):
@@ -83,6 +88,9 @@ class ModelTrainingTab(tk.Frame):
         self.epochs_label.pack_forget()
         self.epochs_entry = tk.Entry(self)
         self.epochs_entry.pack_forget()
+        self.window_size_label.pack_forget()
+        self.window_size_entry.pack_forget()
+
 
     def show_epochs_input(self, event):
         selected_model_type = self.model_type_var.get()
@@ -93,6 +101,9 @@ class ModelTrainingTab(tk.Frame):
 
             self.epochs_label.pack()
             self.epochs_entry.pack()
+            self.window_size_label.pack()
+            self.window_size_entry.pack()
+
         else:
             if self.epochs_label:
                 self.epochs_label.pack_forget()
@@ -116,7 +127,8 @@ class ModelTrainingTab(tk.Frame):
     def train_model_and_enable_button(self, data_file_path, scaler_type, model_type, epochs):
         try:
             # Load and preprocess data
-            X_train, X_test, y_train, y_test = self.preprocess_data(data_file_path, scaler_type)
+            window_size = int(self.window_size_entry.get()) if self.model_type_var.get() == "neural_network" else 1
+            X_train, X_test, y_train, y_test = self.preprocess_data(data_file_path, scaler_type, model_type, window_size)
 
             # Initialize and train the model based on the selected type
             if model_type == "linear_regression":
@@ -124,7 +136,7 @@ class ModelTrainingTab(tk.Frame):
                 model.fit(X_train, y_train)
             elif model_type == "neural_network":
                 model = NeuralNetwork()
-                model.add(Dense(64, activation='relu', input_shape=(X_train.shape[1],)))
+                model.add(LSTM(64, activation='relu', input_shape=(window_size, X_train.shape[2])))
                 model.add(Dense(1))
                 model.compile(optimizer='adam', loss='mean_squared_error')
                 model.fit(X_train, y_train, epochs=epochs)
@@ -188,40 +200,43 @@ class ModelTrainingTab(tk.Frame):
 
     def save_trained_model(self):
         if self.trained_model is not None:
-            # Determine the file type based on the model type
+            model_type = "unknown_model"
             if isinstance(self.trained_model, sklearn.base.BaseEstimator):
-                default_extension = ".joblib"
-                file_types = [("Joblib Files", "*.joblib"), ("All Files", "*.*")]
+                model_type = "sklearn"
+                file_extension = ".joblib"
             elif isinstance(self.trained_model, Model):
-
-                default_extension = ".h5"
-                file_types = [("HDF5 Files", "*.h5"), ("All Files", "*.*")]
+                model_type = "keras"
+                file_extension = ".h5"
             elif isinstance(self.trained_model, torch.nn.Module):
-                default_extension = ".pth"
-                file_types = [("PyTorch Model Files", "*.pth"), ("All Files", "*.*")]
+                model_type = "pytorch"
+                file_extension = ".pth"
             else:
                 self.utils.log_message("Unsupported model type for saving.", self.log_text)
                 return
 
-            # Open file dialog with dynamic default extension and file types
-            file_path = filedialog.asksaveasfilename(defaultextension=default_extension,
-                                                    filetypes=file_types)
+            # Ask for filename from the user
+            file_path = filedialog.asksaveasfilename(defaultextension=file_extension,
+                                                    filetypes=[(f"{model_type.upper()} Files", f"*{file_extension}"), ("All Files", "*.*")])
             if file_path:
-                # Save the model based on its type
-                if isinstance(self.trained_model, sklearn.base.BaseEstimator):
+                # Save the model
+                if file_extension == ".joblib":
                     joblib.dump(self.trained_model, file_path)
-                elif isinstance(self.trained_model, keras.Model):
+                elif file_extension == ".h5":
                     save_keras_model(self.trained_model, file_path)
-                elif isinstance(self.trained_model, torch.nn.Module):
+                elif file_extension == ".pth":
                     torch.save(self.trained_model.state_dict(), file_path)
 
-                # Save the scaler (optional, remove if not needed)
-                scaler_file_path = file_path + "_scaler.joblib"
-                joblib.dump(self.trained_scaler, scaler_file_path)
-
                 self.utils.log_message(f"Model saved to {file_path}", self.log_text)
+
+                # Save the scaler with a more descriptive name
+                if self.trained_scaler is not None:
+                    scaler_type = type(self.trained_scaler).__name__.lower()
+                    scaler_file_path = f"{file_path}_{model_type}_{scaler_type}_scaler.joblib"
+                    joblib.dump(self.trained_scaler, scaler_file_path)
+                    self.utils.log_message(f"Scaler saved to {scaler_file_path}", self.log_text)
         else:
             self.utils.log_message("No trained model available to save.", self.log_text)
+
 
 
     def browse_data_file(self):
@@ -238,7 +253,9 @@ class ModelTrainingTab(tk.Frame):
         scaler_type = self.scaler_type_var.get()
         model_type = self.model_type_var.get()
         epochs_str = self.epochs_entry.get() if model_type == "neural_network" else "1"
+        window_size_str = self.window_size_entry.get()
 
+        # Various checks for empty inputs
         if not data_file_path:
             self.error_label.config(text="Data file path is required.", fg="red")
             return False
@@ -251,11 +268,26 @@ class ModelTrainingTab(tk.Frame):
         if model_type == "neural_network" and (not epochs_str.isdigit() or int(epochs_str) <= 0):
             self.error_label.config(text="Epochs should be a positive integer.", fg="red")
             return False
+        if model_type == "neural_network" and (not window_size_str.isdigit() or int(window_size_str) <= 0):
+            self.error_label.config(text="Window size should be a positive integer.", fg="red")
+            return False
+
+        # Check if window size is too large for the dataset
+        if model_type == "neural_network":
+            try:
+                data_length = pd.read_csv(data_file_path).shape[0]
+                if int(window_size_str) >= data_length:
+                    self.error_label.config(text="Window size too large for the dataset.", fg="red")
+                    return False
+            except Exception as e:
+                self.utils.log_message(f"Error checking data length: {str(e)}", self.log_text)
+                return False
 
         self.error_label.config(text="")
         return True
 
-    def preprocess_data(self, file_path, scaler_type):
+
+    def preprocess_data(self, file_path, scaler_type, model_type, window_size=5):
         # Load the data
         data = pd.read_csv(file_path)
 
@@ -266,7 +298,6 @@ class ModelTrainingTab(tk.Frame):
         data['date'] = pd.to_datetime(data['date'], errors='coerce')
 
         # Handle rows where 'date' couldn't be converted (now NaT)
-        # You can drop, fill, or handle these rows based on your requirement
         data = data.dropna(subset=['date'])
 
         # Extract features from 'date' column
@@ -275,20 +306,39 @@ class ModelTrainingTab(tk.Frame):
         data['year'] = data['date'].dt.year
 
         # Define your target variable and feature set
-        y = data['close']  # Replace with your target column name
-        X = data.drop(['close', 'date'], axis=1)  # Drop target and date column
+        if 'close' in data.columns:
+            y = data['close']  # Use 'close' as your target column name if it exists
+            X = data.drop(['close', 'date'], axis=1)  # Drop 'close' and 'date' columns
+        elif '4. close' in data.columns:
+            y = data['4. close']  # Use '4. close' as your target column name if 'close' does not exist
+            X = data.drop(['4. close', 'date'], axis=1)  # Drop '4. close' and 'date' columns
+        else:
+            raise ValueError("Neither 'close' nor '4. close' column found in the dataset")
+
 
         # Fill NaN values
         for col in X.columns:
             if X[col].isna().any():
                 X[col].fillna(X[col].mean(), inplace=True)
 
-        # Scale the features
+        # Create the scaler object
         scaler = self.get_scaler(scaler_type)
+        # Scale the features
         X_scaled = scaler.fit_transform(X)
+        # Store the used scaler object
+        self.trained_scaler = scaler
 
         # Split the data into training and testing sets
-        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+        if model_type == "neural_network":
+            # Check if dataset is large enough for the given window size
+            if len(X_scaled) > window_size:
+                X, y = self.create_windowed_data(X_scaled, y, window_size)
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            else:
+                self.utils.log_message("Window size is too large for the dataset.", self.log_text)
+                return None, None, None, None  # Or handle this case as you see fit
+        else:
+            X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
         return X_train, X_test, y_train, y_test
 
@@ -402,3 +452,10 @@ class ModelTrainingTab(tk.Frame):
         plt.ylabel('Predicted Value')
         plt.title('Regression Results: True vs Predicted')
         plt.show()
+
+    def create_windowed_data(self, X, y, n_steps):
+        X_new, y_new = [], []
+        for i in range(len(X) - n_steps):
+            X_new.append(X[i:i + n_steps])
+            y_new.append(y[i + n_steps])
+        return np.array(X_new), np.array(y_new)

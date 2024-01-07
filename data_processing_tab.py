@@ -116,7 +116,9 @@ class DataProcessingTab:
             self.file_path_entry.insert(0, file_path)  # Insert the selected file path
 
     def clear_logs(self):
-        self.log_text.delete('1.0', tk.END)
+        if hasattr(self, 'log_text'):
+            self.log_text.delete('1.0', tk.END)  # Clear the content of the log text widget
+
 
     def toggle_debug_mode(self):
         # Toggle debug mode state
@@ -156,7 +158,11 @@ class DataProcessingTab:
 
         try:
             df = pd.read_csv(file_path)
+            self.standardize_column_names(df)  # Standardize column names if necessary
+            df.fillna(method='ffill', inplace=True)  # Forward fill to handle NaN values
+            df.fillna(method='bfill', inplace=True)  # Backward fill as a fallback
             self.log_text.insert(tk.END, "CSV file loaded successfully.\n")
+
         except Exception as e:
             self.log_text.insert(tk.END, f"Error loading CSV file: {str(e)}\n")
             messagebox.showerror("Loading Error", f"Error loading CSV file: {str(e)}")
@@ -281,6 +287,17 @@ class DataProcessingTab:
 
         return save_path
     
+    def standardize_column_names(self, df):
+        column_renames = {
+            '1. open': 'open',
+            '2. high': 'high',
+            '3. low': 'low',
+            '4. close': 'close',
+            '5. volume': 'volume'
+        }
+        df.rename(columns=column_renames, inplace=True)
+
+
 def main():
     # Load configuration
     config = configparser.ConfigParser()
