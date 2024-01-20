@@ -1,4 +1,11 @@
+#data_transformations.py
+
 import pandas as pd
+import pandas as pd
+import logging
+from typing import Optional
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def normalize_columns(df):
     """
@@ -14,18 +21,27 @@ def normalize_columns(df):
     df.columns = df.columns.str.lower().str.replace(' ', '_')
     return df
 
-def convert_to_datetime(df, date_column):
+def convert_to_datetime(df: pd.DataFrame, date_column: str) -> pd.DataFrame:
     """
     Convert a column in the DataFrame to datetime.
 
     Args:
         df (pd.DataFrame): The DataFrame to process.
-        date_column (str): The name of the column to convert.
+        date_column (str): The name of the column to convert to datetime.
 
     Returns:
-        pd.DataFrame: DataFrame with the date column in datetime format.
+        pd.DataFrame: The DataFrame with the specified column converted to datetime.
+
+    Raises:
+        ValueError: If the specified date column is not found in the DataFrame.
     """
-    df[date_column] = pd.to_datetime(df[date_column])
+    try:
+        if date_column not in df.columns:
+            raise ValueError(f"Column '{date_column}' not found in the DataFrame.")
+        df[date_column] = pd.to_datetime(df[date_column])
+    except Exception as e:
+        logging.error(f"Error in converting column to datetime: {e}")
+        raise
     return df
 
 def fill_missing_values(df, method='ffill'):

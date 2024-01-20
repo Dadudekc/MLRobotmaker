@@ -1,4 +1,4 @@
-#data_fetcher.py
+#data_fetch.py
 
 """
 This script is designed to fetch stock data from various APIs (AlphaVantage, Polygon.io, and NASDAQ).

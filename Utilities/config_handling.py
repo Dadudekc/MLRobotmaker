@@ -21,9 +21,15 @@ warnings.simplefilter(action='ignore', category=Warning)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
 config = configparser.ConfigParser()
 config.read('config.ini')
+
+# Debugging: Print out all sections and keys
+for section in config.sections():
+    print(f"Section: {section}")
+    for key in config[section]:
+        print(f"  {key} = {config[section][key]}")
+
 loading_path = config['Paths']['loading_path']
 saving_path = config['Paths']['saving_path']
 
@@ -134,18 +140,33 @@ def fetch_csv_files_and_tickers(loading_path):
 def read_configuration_settings():
     """
     Reads the configuration settings from the config.ini file.
+    
+    This function dynamically determines the path to the config.ini file
+    relative to the current script's location.
 
     Returns:
     dict: Dictionary containing the configuration settings.
     """
-    config = configparser.ConfigParser()
-    config.read('config.ini')
+    # Determine the path to the config.ini file relative to this script
+    project_dir = Path(__file__).resolve().parent
+    config_file_path = project_dir / 'config.ini'
 
+    # Read configuration from the determined path
+    config = configparser.ConfigParser()
+    config.read(config_file_path)
+
+    # Extract configuration settings
     config_settings = {
-        'loading_path': config['Paths']['loading_path'],
-        'saving_path': config['Paths']['saving_path']
+        'loading_path': config.get('Paths', 'loading_path', fallback='/default/loading/path'),
+        'saving_path': config.get('Paths', 'saving_path', fallback='/default/saving/path')
     }
+
     return config_settings
+
+# Example usage
+settings = read_configuration_settings()
+print(settings)
+
 
 def load_user_settings(settings_file='config.ini'):
     """

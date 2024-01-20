@@ -1,13 +1,21 @@
 from data_preprocessing import preprocess_data
 from model_training import train_model, evaluate_model, save_model
-from utils import load_configuration, setup_logging
+import sys
+sys.path.append('C:\\Users\\Dagurlkc\\OneDrive\\Desktop\\DaDudeKC\\MLRobot')
+from Utilities.Utils import load_configuration, setup_logging
+import statsmodels
+import os
+import pandas as pd
+import configparser
 
 def main():
     # Set up logging
     setup_logging()
 
     # Load configuration
-    config = load_configuration('path/to/config.ini')
+    config_path = 'config.ini'
+    config = configparser.ConfigParser()
+    config.read(config_path)
 
     # Example of using the configuration
     data_folder = config['Paths']['data_folder']
@@ -21,7 +29,12 @@ def main():
             data = pd.read_csv(file_path)
             preprocessed_data = preprocess_data(data)
 
-            # Splitting data into features and target (assuming 'target' column exists)
+            # Debugging: Check if 'target' column exists
+            if 'target' not in preprocessed_data.columns:
+                print(f"Target column not found in {csv_file}. Available columns: {preprocessed_data.columns}")
+                continue  # Skip to the next file
+
+            # Splitting data into features and target
             X = preprocessed_data.drop('target', axis=1)
             y = preprocessed_data['target']
 

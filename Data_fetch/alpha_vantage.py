@@ -1,63 +1,80 @@
 #alpha_vantage.py
 
+import os
 import requests
 import pandas as pd
 import logging
-import os
-from alpha_vantage.timeseries import TimeSeries
+from typing import List
 
-# Setting up logging
-logger = logging.getLogger(__name__)
+class AlphaVantageDataFetcher:
+    def __init__(self, api_key: str, csv_dir: str):
+        self.api_key = api_key
+        self.csv_dir = csv_dir
+        self.base_url = "https://www.alphavantage.co/query"
+        self.logger = self._setup_logger()
 
-def fetch_data_from_alpha_vantage(ticker_symbols, config, api_key, csv_dir, start_date=None, end_date=None):
-    """
-    Fetch stock data for specific symbols from AlphaVantage API.
+    def _setup_logger(self):
+        logger = logging.getLogger("AlphaVantageDataFetcher")
+        logger.setLevel(logging.DEBUG)
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] - %(message)s")
 
-    Parameters:
-        ticker_symbols (list): The stock symbols to fetch data for.
-        api_key (str): The API key for AlphaVantage.
-        csv_dir (str): Directory to save the fetched data as CSV files.
-    """
-    all_data = pd.DataFrame()
+        # Create a log file in the same directory as the script
+        log_file_path = os.path.join(os.path.dirname(__file__), "data_fetcher.log")
+        file_handler = logging.FileHandler(log_file_path)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
-    for symbol in ticker_symbols:
-        api_url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={api_key}"
+        return logger
 
+    def fetch_data(self, ticker_symbols: List[str]) -> pd.DataFrame:
+        all_data = pd.DataFrame()
+
+        for symbol in ticker_symbols:
+            data = self._fetch_data_for_symbol(symbol)
+            if data is not None:
+                all_data = pd.concat([all_data, data])
+
+        return all_data
+
+    def _fetch_data_for_symbol(self, symbol: str) -> pd.DataFrame:
         try:
-            logger.info(f"Fetching data for symbol: {symbol} from AlphaVantage")
-            response = requests.get(api_url)
-            response.raise_for_status()  # Check for HTTP errors
+            api_params = {
+                "function": "TIME_SERIES_DAILY",
+                "symbol": symbol,
+                "apikey": self.api_key,
+            }
+
+            response = requests.get(self.base_url, params=api_params)
+            response.raise_for_status()
             data = response.json()
 
-            # Check if data is received
             if "Time Series (Daily)" not in data:
-                logger.warning(f"No data found for symbol: {symbol}")
-                continue
+                self.logger.warning(f"No data found for symbol: {symbol}")
+                return None
 
             df = pd.DataFrame.from_dict(data["Time Series (Daily)"], orient="index")
             df.columns = ["open", "high", "low", "close", "volume"]
             df.index.name = "date"
-            df['symbol'] = symbol  # Add a column for the symbol
+            df['symbol'] = symbol
 
-            all_data = pd.concat([all_data, df])
+            return df
 
         except requests.RequestException as e:
-            logger.error(f"Error fetching data from AlphaVantage for symbol {symbol}: {e}")
+            self.logger.error(f"Error fetching data for symbol {symbol}: {e}")
+            return None
         except Exception as e:
-            logger.error(f"An unexpected error occurred while fetching data from AlphaVantage for symbol {symbol}: {e}")
+            self.logger.error(f"Unexpected error for symbol {symbol}: {e}")
+            return None
 
-    return all_data
-
-#example usage
 if __name__ == "__main__":
-    ticker_symbols = ["AAPL"]  # Example list of symbols
-    api_key = "YOUR_ALPHA_VANTAGE_API_KEY"
+    ticker_symbols = ["AAPL"]
+    api_key = os.environ.get("ALPHA_VANTAGE_API_KEY")
     csv_dir = "/path/to/your/csv/directory"
-    config = {}  # Assuming you have a config dictionary, or load it from a file
 
-    # Assuming start_date and end_date are not needed for this test, you can set them to None
-    start_date = None
-    end_date = None
-
-    fetch_data_from_alpha_vantage(ticker_symbols, config, api_key, csv_dir, start_date, end_date)
-
+    if api_key is None:
+        print("Error: Alpha Vantage API key not set in environment variable ALPHA_VANTAGE_API_KEY")
+    else:
+        data_fetcher = AlphaVantageDataFetcher(api_key, csv_dir)
+        fetched_data = data_fetcher.fetch_data(ticker_symbols)
+        if not fetched_data.empty:
+            print(fetched_data.head())
