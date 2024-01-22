@@ -47,18 +47,15 @@ class MLRobotUtils:
             if self.is_debug_mode:
                 self.log_message(f"Debug: Directory selected - {directory}")
                     
-    def log_message(self, message, tk_parent, log_text_widget, is_debug_mode=False):
+    def log_message(self, message, log_text_widget, is_debug_mode):
+        # Log to the terminal
+        print(message)
+
+        # Log to the GUI's text box if it's provided
         if log_text_widget:
             log_text_widget.config(state=tk.NORMAL)
             log_text_widget.insert(tk.END, message + "\n")
             log_text_widget.config(state=tk.DISABLED)
-
-        # Check if debug mode is active
-        if is_debug_mode:
-            print(message)
-
-
-
 
 
     def auto_generate_save_path(input_file_path, base_dir):

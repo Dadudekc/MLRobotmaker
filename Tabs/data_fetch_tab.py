@@ -19,6 +19,7 @@ from Utilities.Utils import MLRobotUtils
 from Data_fetch.main import main as fetch_main
 from candlestick_chart import CandlestickChart
 
+
 class DataFetchTab:
     def __init__(self, parent=None, config=None, is_debug_mode=False):
         self.parent = parent
@@ -45,7 +46,7 @@ class DataFetchTab:
         # Call the setup_data_fetch_tab method
         self.setup_data_fetch_tab()
 
-
+        self.utils = MLRobotUtils()  # Initialize the utils attribute
         self.chart_frame = None
         self.candlestick_chart = None
 
@@ -64,8 +65,11 @@ class DataFetchTab:
         # Create a label and an entry widget for stock tickers
         self.tickers_entry = ttk.Entry(input_frame, width=30)
         self.start_date_entry = DateEntry(input_frame, width=30)  # Initialize start_date_entry
-        self.end_date_entry = DateEntry(input_frame, width=30)    # Initialize end_date_entry
-        self.api_dropdown = ttk.Combobox(input_frame, values=["Alpha Vantage", "Polygon.io", "Nasdaq"])  # Initialize api_dropdown
+        self.end_date_entry = DateEntry(input_frame, width=30)    # Initialize end_date_entrysa
+        self.api_dropdown = ttk.Combobox(input_frame, textvariable=self.api_var, values=["Alpha Vantage", "Polygon.io", "Nasdaq"])
+        self.api_dropdown.bind('<<ComboboxSelected>>', lambda e: self.api_var.set(self.api_dropdown.get()))
+
+
 
         ttk.Label(input_frame, text="Stock Tickers (comma separated):").grid(row=0, column=0, sticky=tk.W, padx=10, pady=10)
         entries = [self.tickers_entry, self.start_date_entry, self.end_date_entry, self.api_dropdown]
@@ -152,27 +156,28 @@ class DataFetchTab:
         if not self.validate_inputs():
             return
 
-        # Create or reset the progress bar here
-        if hasattr(self, 'progress_bar'):
-            self.progress_bar["value"] = 0  # Reset progress to 0
-        else:
+        # Initialize or reset the progress bar
+        if self.progress_bar is None or not hasattr(self.progress_bar, 'winfo_exists') or not self.progress_bar.winfo_exists():
             self.progress_bar = ttk.Progressbar(self.status_label.master, mode="indeterminate")
             self.progress_bar.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+            self.progress_bar["value"] = 0
+            self.progress_bar.start()
+            user_input = self.tickers_entry.get()
+            ticker_symbols = user_input.split(',')
+            csv_dir = self.save_directory_entry.get()
+            start_date = self.start_date_entry.get()
+            end_date = self.end_date_entry.get()
+            selected_api = self.api_dropdown.get()
 
-        self.progress_bar.start()
-        user_input = self.tickers_entry.get()
-        ticker_symbols = user_input.split(',')
-        csv_dir = self.save_directory_entry.get()
-        start_date = self.start_date_entry.get()
-        end_date = self.end_date_entry.get()
-        selected_api = self.api_var.get()
 
         if self.is_debug_mode:
-            log_message("Debug: Fetch request received", self.log_text)
-            log_message(f"Debug: CSV Directory - {csv_dir}", self.log_text)
-            log_message(f"Debug: Tickers - {ticker_symbols}", self.log_text)
-            log_message(f"Debug: Start Date - {start_date}, End Date - {end_date}", self.log_text)
-            log_message(f"Debug: API Selected - {selected_api}", self.log_text)
+            # Logging messages
+            self.utils.log_message("Debug: Fetch request received", self.log_text, self.is_debug_mode)
+            self.utils.log_message(f"Debug: CSV Directory - {csv_dir}", self.log_text, self.is_debug_mode)
+            self.utils.log_message(f"Debug: Tickers - {ticker_symbols}", self.log_text, self.is_debug_mode)
+            self.utils.log_message(f"Debug: Start Date - {start_date}, End Date - {end_date}", self.log_text, self.is_debug_mode)
+            self.utils.log_message(f"Debug: API Selected - {selected_api}", self.log_text, self.is_debug_mode)
+
 
         # Disable the fetch_all_button and update status
         self.fetch_all_button.config(state=tk.DISABLED)
@@ -185,7 +190,7 @@ class DataFetchTab:
     def fetch_all_data(self):
         try:
             if self.is_debug_mode:
-                log_message("Debug: Fetch All request received", self.log_text)
+                self.utils.log_message("Debug: Fetch All request received", self.log_text, self.is_debug_mode)
             self.fetch_button.config(state=tk.DISABLED)
             self.fetch_all_button.config(state=tk.DISABLED)
             # Start the progress bar here
@@ -237,27 +242,26 @@ class DataFetchTab:
                 time.sleep(12)  # Sleep to avoid hitting API rate limit
 
                 if self.is_debug_mode:
-                    log_message(f"Data for {ticker} saved to {file_path}", self.log_text)
+                    self.utils.log_message(f"Data for {ticker} saved to {file_path}", self.log_text, self.is_debug_mode)
 
             self.status_label.config(text="All data fetch completed")
         except Exception as e:
             error_message = f"Error during data fetch: {str(e)}"
             self.utils.log_message(f"Debug: An error occurred during data fetch", self.log_text, self.is_debug_mode)
 
-            self.utils.log_message(f"Debug: Error details - {error_message}", self.log_text)
+            self.utils.log_message(f"Debug: Error details - {error_message}", self.log_text, self.is_debug_mode)
             messagebox.showerror("Error", error_message)
         finally:
             self.fetch_button.config(state=tk.NORMAL)
             self.fetch_all_button.config(state=tk.NORMAL)
-
-
+            
     def fetch_data_threaded(self, csv_dir, ticker_symbols, start_date, end_date, selected_api):
         try:
             # Initialize a list to store error messages
             error_messages = []
 
-            # Fetch the data
-            data = fetch_main(csv_dir, ticker_symbols, start_date, end_date, selected_api)
+            # Initialize progress_percent to 0 at the start
+            progress_percent = 0
 
             # Get the save directory
             save_dir = self.save_directory_entry.get()
@@ -271,7 +275,7 @@ class DataFetchTab:
 
             # Create a determinate progress bar for tracking the merge progress
             self.progress_bar.config(mode="determinate")
-            self.progress_label.config(text="Merging data... 0%")
+            self.status_label.config(text="Merging data... 0%")
             self.parent.update_idletasks()  # Force update the UI
 
             # Iterate through each ticker symbol to handle each data file
@@ -280,25 +284,27 @@ class DataFetchTab:
                 if not ticker:
                     continue
 
+                # Update progress_percent for each ticker
+                progress_percent = int((idx + 1) / len(ticker_symbols) * 100)
+
+                # Fetch the data
+                data = fetch_main(csv_dir, [ticker], start_date, end_date, selected_api)
+
                 file_name = f'{ticker}_data.csv'
                 file_path = os.path.join(save_dir, file_name)
 
                 try:
-                    # Check for existing data and merge if necessary
-                    if os.path.exists(file_path):
-                        existing_data = pd.read_csv(file_path)
-                        combined_data = pd.concat([existing_data, data]).drop_duplicates().reset_index(drop=True)
+                    # Check if data is not None before saving
+                    if data is not None:
+                        # Save the data to a CSV file
+                        data.to_csv(file_path, index=False)
+                        self.utils.log_message(f"Data for {ticker} saved to {file_path}", self.log_text, self.is_debug_mode)
                     else:
-                        combined_data = data
-
-                    # Save the merged data
-                    combined_data.to_csv(file_path, index=False)
-                    log_message(f"Data for {ticker} saved to {file_path}", self.log_text)
+                        raise ValueError(f"No data returned for ticker {ticker}")
 
                     # Update progress bar and label
-                    progress_percent = int((idx + 1) / len(ticker_symbols) * 100)
                     self.progress_bar["value"] = progress_percent
-                    self.progress_label.config(text=f"Merging data... {progress_percent}%")
+                    self.status_label.config(text=f"Merging data... {progress_percent}%")
                     self.parent.update_idletasks()  # Force update the UI
                 except Exception as e:
                     # Handle errors for individual ticker symbols
@@ -317,7 +323,7 @@ class DataFetchTab:
         except Exception as e:
             # Handle errors and update status/progress accordingly
             error_message = f"Error during data fetch: {str(e)}"
-            self.utils.log_message(f"Error: {error_message}", self.log_text)
+            self.utils.log_message(f"Error: {error_message}", self.log_text, self.is_debug_mode)
             messagebox.showerror("Error", error_message)
         finally:
             self.fetch_button.config(state=tk.NORMAL)
@@ -325,8 +331,6 @@ class DataFetchTab:
             # Stop the progress bar here
             self.progress_bar.stop()
             self.progress_bar["value"] = 100  # Set progress to 100 (completed)
-            # At the end of the fetch_data_threaded method
-            self.progress_bar["value"] = 100  # Complete the progress
             self.status_label.config(text="Data fetch completed")
             self.progress_bar.destroy()
 
@@ -397,10 +401,10 @@ class DataFetchTab:
 
         if is_success:
             logger.info(f"Success: {message}")
-            log_message(f"Success: {message}", self.log_text)
+            self.utils.log_message(f"Success: {message}", self.log_text, self.is_debug_mode)
         else:
             logger.error(f"Error: {message}")
-            log_message(f"Error: {message}", self.log_text)
+            self.utils.log_message(f"Error: {message}", self.log_text, self.is_debug_mode)
 
 
 

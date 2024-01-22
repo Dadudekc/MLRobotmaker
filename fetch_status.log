@@ -1,0 +1,15 @@
+2024-01-22 02:05:11,063 [ERROR] - Error: Error for sq: 'NoneType' object has no attribute 'to_csv'
+2024-01-22 02:08:04,877 [ERROR] - Error: Error for sq: No data returned for ticker sq
+2024-01-22 02:16:35,593 [ERROR] - Error: Error for sq: No data returned for ticker sq
+2024-01-22 02:16:45,953 [ERROR] - Error: Error for tsla: No data returned for ticker tsla
+2024-01-22 02:16:45,953 [ERROR] - Error: Error for tsla: No data returned for ticker tsla
+2024-01-22 02:17:00,495 [ERROR] - Error: Error for WMT: No data returned for ticker WMT
+2024-01-22 02:17:00,495 [ERROR] - Error: Error for WMT: No data returned for ticker WMT
+2024-01-22 02:17:00,495 [ERROR] - Error: Error for WMT: No data returned for ticker WMT
+2024-01-22 02:23:26,921 [ERROR] - Error: Error for tsla: No data returned for ticker tsla
+2024-01-22 02:27:05,348 [ERROR] - Error: Error for sq: No data returned for ticker sq
+2024-01-22 02:27:37,094 [ERROR] - Error: Error for tsla: No data returned for ticker tsla
+2024-01-22 02:27:37,094 [ERROR] - Error: Error for tsla: No data returned for ticker tsla
+2024-01-22 05:41:53,721 [ERROR] - Error: Error for SQ: No data returned for ticker SQ
+2024-01-22 05:43:37,098 [ERROR] - Error: Error for SQ: No data returned for ticker SQ
+2024-01-22 05:43:37,098 [ERROR] - Error: Error for SQ: No data returned for ticker SQ
