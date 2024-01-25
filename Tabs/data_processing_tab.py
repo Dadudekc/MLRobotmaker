@@ -12,10 +12,10 @@ class DataProcessingTab:
     def __init__(self, parent, config):
         self.parent = parent
         self.config = config
-        self.debug_mode = False  # Initialize debug mode to False
+        self.is_debug_mode = False  # Initialize debug mode to False
 
         # Initialize MLRobotUtils with debug mode state
-        self.utils = MLRobotUtils(is_debug_mode=self.debug_mode)
+        self.utils = MLRobotUtils(is_debug_mode=self.is_debug_mode)
 
         # Initialize GUI components
         self.setup_gui()
@@ -83,10 +83,15 @@ class DataProcessingTab:
         self.unselect_all_button = tk.Button(buttons_frame, text="Unselect All", command=self.unselect_all_features)
         self.unselect_all_button.pack()
 
-        # Toggle Debug Mode Button
-        self.debug_mode_button = tk.Button(self.parent, text="Toggle Debug Mode", command=self.utils.toggle_debug_mode)
-        self.debug_mode_button.pack()
-            
+        # Debug Mode Button
+        self.debug_mode_button = tk.Button(self.parent, text="Debug Mode: OFF", command=self.toggle_debug_mode)
+
+        self.debug_mode_button.pack(pady=(5, 10))
+
+        # Start Processing Button
+        self.start_processing_button = tk.Button(self.parent, text="Start Processing", command=self.process_data)
+        self.start_processing_button.pack(pady=(0, 5))
+  
         if hasattr(self, 'log_message'):
             self.log_message.delete('1.0', tk.END)  # Clear existing content
         else:
@@ -97,6 +102,17 @@ class DataProcessingTab:
             self.log_message = scrolledtext.ScrolledText(log_frame, height=10)
             self.log_message.pack(fill='both', expand=True)
 
+    def toggle_debug_mode(self):
+        # Toggle debug mode state
+        self.is_debug_mode = not self.is_debug_mode
+
+        # Update the button text to reflect the current state
+        if self.is_debug_mode:
+            self.debug_mode_button.config(text="Debug Mode: ON")
+        else:
+            self.debug_mode_button.config(text="Debug Mode: OFF")
+
+    # Here, you can add additional actions to be performed when toggling debug mode
 
     def select_all_features(self):
         # Select all items in the features_listbox
@@ -146,9 +162,19 @@ class DataProcessingTab:
     def apply_feature(self, df, feature_name):
         """
         Apply the given feature to the DataFrame.
+        
+        Args:
+        df (pd.DataFrame): The DataFrame to which the feature will be applied.
+        feature_name (str): The name of the feature to apply.
+
+        Returns:
+        pd.DataFrame: The DataFrame with the applied feature.
+        
+        Raises:
+        ValueError: If the feature method does not return a DataFrame.
         """
         try:
-            # Match the feature name to the corresponding method
+            # Dictionary mapping feature names to their corresponding methods
             feature_methods = {
                 "Simple Moving Average (SMA)": TechnicalIndicators.add_moving_average,
                 "Exponential Moving Average (EMA)": TechnicalIndicators.add_exponential_moving_average,
@@ -182,20 +208,36 @@ class DataProcessingTab:
                 # ... add any additional features and their corresponding methods here ...
             }
 
+            # Check if the feature is in the feature methods dictionary
             if feature_name in feature_methods:
-                df = feature_methods[feature_name](df)
-                if self.debug_mode:
+                # Get the method corresponding to the feature name
+                feature_method = feature_methods[feature_name]
+                # Apply the feature method to the DataFrame
+                result = feature_method(df)
+
+                # Ensure the returned result is a DataFrame
+                if not isinstance(result, pd.DataFrame):
+                    raise ValueError(f"Expected a DataFrame from {feature_name}, but got {type(result)}.")
+
+                # Debug mode logging
+                if self.is_debug_mode:
                     self.utils.log_message(f"Applied {feature_name}.", self.log_message)
-                    self.utils.log_message(f"DataFrame columns after processing {feature_name}: {df.columns}", self.log_message)
-                    self.utils.log_message(f"DataFrame sample after processing {feature_name}:\n{df.head()}", self.log_message)
+                    self.utils.log_message(f"DataFrame columns after processing {feature_name}: {result.columns}", self.log_message)
+                    self.utils.log_message(f"DataFrame sample after processing {feature_name}:\n{result.head()}", self.log_message)
+
+                return result  # Return the DataFrame with the applied feature
+
             else:
+                # Log a message if the feature method is not found
                 self.utils.log_message(f"Feature method for '{feature_name}' not found.", self.log_message)
 
         except Exception as e:
-            if self.debug_mode:
-                self.utils.log_message(f"Error applying {feature_name}: {str(e)}", self.log_message)
+            # Log the error and rethrow if in debug mode
+            if self.is_debug_mode:
+                self.utils.log_message(f"Error applying {feature_name}: {str(e)}", self.log_message, self.is_debug_mode)
+
             raise  # Rethrow the exception to handle it in the calling method
-        
+
     def standardize_column_names(self, df):
         column_renames = {
             '1. open': 'open',
@@ -205,27 +247,6 @@ class DataProcessingTab:
             '5. volume': 'volume'
         }
         df.rename(columns=column_renames, inplace=True)
-
-    def open_processed_data(self):
-        # Assuming 'save_path_config' is the configuration key for the save path
-        save_path_dir = self.config.get('SAVE_PATH_SECTION', 'save_path_dir', fallback='')
-
-        if not save_path_dir:
-            messagebox.showwarning("Error", "Save path directory not configured in the settings.")
-            return
-
-        # Construct the processed CSV file path (assuming the file name follows a specific pattern)
-        processed_file_path = os.path.join(save_path_dir, "example_processed.csv")
-
-        if os.path.exists(processed_file_path):
-            try:
-                # Use the default system application to open the CSV file
-                os.system(f'start {processed_file_path}')
-            except Exception as e:
-                messagebox.showerror("Error", f"Error opening processed data: {str(e)}")
-        else:
-            messagebox.showwarning("File Not Found", "Processed data file does not exist.")
-
 
 def main():
     # Load configuration

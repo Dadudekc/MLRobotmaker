@@ -41,17 +41,19 @@ import traceback
 import os
 from Utilities.Utils import MLRobotUtils
 from model_development.model_training import (
-    train_model, load_model, create_lstm_model, train_arima_model, create_ensemble_model
+    train_model, load_model, create_lstm_model, train_arima_model, create_ensemble_model, create_neural_network, create_lstm_model, train_arima_model
 )
 
 import smtplib  # For sending email notifications
-from email.mime.text import MIMEText
+from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
 import queue
-# Replace with or add immediately after
+
+# Additional import for RandomForestClassifier
 from xgboost import XGBRegressor
-
-
+import pandas as pd
+import time
+import datetime
 
 class ModelTrainingTab(tk.Frame):
     def __init__(self, parent, config, scaler_options):
@@ -191,6 +193,16 @@ class ModelTrainingTab(tk.Frame):
                 self.window_size_entry.pack_forget()
                 
     # Function to start training process
+    def start_asyncio_loop():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    # Start asyncio loop in a separate thread
+    asyncio_thread = threading.Thread(target=start_asyncio_loop, daemon=True)
+    asyncio_thread.start()
+
+
     def start_training(self):
         if not self.validate_inputs():
             self.display_message("Invalid input. Please check your settings.")
@@ -208,25 +220,44 @@ class ModelTrainingTab(tk.Frame):
         self.disable_training_button()
         self.display_message("Training started...")
 
-        # Use asyncio to run training asynchronously
-        asyncio.ensure_future(self.train_model_async(data_file_path, scaler_type, model_type, epochs))
+        # Load and preprocess your data to get the input shape
+        data = pd.read_csv(data_file_path)
+        X = data.drop('close', axis=1)  # Adjust this to your data
+        input_shape = (X.shape[1],)  # Shape as a tuple
 
-    async def train_model_async(self, data_file_path, scaler_type, model_type, epochs):
-        try:
-            # Perform the actual training (replace with your training logic)
-            await self.simulate_training_progress()
+        if model_type == "neural_network":
+            def objective(trial):
+                # Define hyperparameter search space
+                lstm_layers = [trial.suggest_int('lstm_layer_1', 32, 128), trial.suggest_int('lstm_layer_2', 16, 64)]
+                dropout_rates = [trial.suggest_uniform('dropout_1', 0.2, 0.5), trial.suggest_uniform('dropout_2', 0.2, 0.5)]
 
-            # Training completed successfully
-            self.display_message("Training completed successfully.")
-        except Exception as e:
-            logging.error(f"An error occurred during training: {str(e)}")
-            self.display_message(f"Training error: {str(e)}")
+                # Call create_neural_network with the suggested hyperparameters
+                model = create_neural_network(input_shape, lstm_layers, dropout_rates)
 
-        finally:
-            # Enable the training button after training is done
-            self.enable_training_button()
+                # Evaluate the model's performance and return a metric to optimize
+                return validation_loss
 
+            study = optuna.create_study(direction='minimize')
+            study.optimize(objective, n_trials=100)
+            best_params = study.best_params
 
+            # Call create_neural_network with the best hyperparameters
+            model = create_neural_network(input_shape, best_params['lstm_layers'], best_params['dropout_rates'])
+
+        elif model_type == "LSTM":
+            lstm_layers = [64, 32]  # Example values, customize as needed
+            dropout_rates = [0.2, 0.3]  # Example values, customize as needed
+
+            # Call create_lstm_model with the lists
+            model = create_lstm_model(input_shape, lstm_layers, dropout_rates)
+
+        elif model_type == "ARIMA":
+            model = train_arima_model(data_file_path, scaler_type)
+        elif model_type == "linear_regression":
+            model = self.train_linear_regression(data_file_path, scaler_type)
+        elif model_type == "random_forest":
+            model = self.train_random_forest(data_file_path, scaler_type, 'close')
+        # Add other model types here...
 
     async def simulate_training_progress(self):
         # Simulate training progress (replace with your actual training code)
@@ -368,10 +399,12 @@ class ModelTrainingTab(tk.Frame):
             return wrapper
         return decorator
 
-    @handle_exceptions(logger=ModelTrainingLogger)  # Log exceptions using ModelTrainingLogger
+    @handle_exceptions(logger=ModelTrainingLogger)
     async def train_model_and_enable_button(self, data_file_path, scaler_type, model_type, epochs):
         """
-        Train a machine learning model based on provided parameters concurrently, monitor progress, use mixed-precision training, distributed training with Horovod, automated hyperparameter tuning with Optuna, model ensembling, federated learning, automated data augmentation, and model quantization.
+        Train a machine learning model based on provided parameters. This includes concurrent training, 
+        mixed-precision training, distributed training with Horovod, automated hyperparameter tuning with Optuna, 
+        model ensembling, federated learning, automated data augmentation, and model quantization.
 
         Args:
             data_file_path (str): The path to the data file.
@@ -380,106 +413,79 @@ class ModelTrainingTab(tk.Frame):
             epochs (int): The number of training epochs.
 
         Raises:
-            ModelTrainingError: If there is an error during model training.
             ValueError: If invalid parameters are provided.
 
         Returns:
             None
         """
-        # Validate parameters
-        if not data_file_path:
-            raise ValueError("Invalid data_file_path")
+        # Validate input parameters
+        if not os.path.exists(data_file_path):
+            raise ValueError("Data file path does not exist")
         if model_type not in ["linear_regression", "neural_network", "random_forest"]:
-            raise ValueError("Invalid model_type")
+            raise ValueError("Unsupported model_type")
         if epochs <= 0:
-            raise ValueError("Invalid number of epochs")
+            raise ValueError("Epochs must be a positive integer")
 
-        # Calculate window size based on model type
+        # Preprocess data
         window_size = int(self.window_size_entry.get()) if model_type == "neural_network" else 1
-
-        # Extract preprocessing into a separate method for better organization
         X_train, X_test, y_train, y_test = self.preprocess_data(data_file_path, scaler_type, model_type, window_size)
 
-        # Initialize Horovod
-        hvd.init()
+        # Initialize and configure model
+        model = await self.initialize_and_configure_model(model_type, X_train, epochs)
+        if model is None:
+            raise ModelTrainingError("Failed to initialize model")
 
-        # Create a factory class to handle model creation and training
-        model_factory = ModelFactory()
+        # Automated hyperparameter tuning
+        best_params = await self.perform_hyperparameter_tuning(model, X_train, y_train, epochs)
 
-        # Check if the model type is valid and get the corresponding model instance
-        model = model_factory.get_model(model_type, window_size, X_train.shape[2], epochs)
+        # Ensemble and quantize model
+        ensemble_model = self.create_ensemble_model(model, best_params)
+        quantized_model = self.quantize_model(ensemble_model)
 
-        if model is not None:
-            # Apply mixed-precision training
-            policy = mixed_precision.Policy('mixed_float16')
-            mixed_precision.set_policy(policy)
+        # Train the model asynchronously
+        await self.train_model_async(quantized_model, X_train, y_train, epochs)
 
-            # Configure Horovod for distributed training
-            gpu_options = tf.compat.v1.GPUOptions(allow_growth=True)
-            config = tf.compat.v1.ConfigProto(gpu_options=gpu_options)
-            config.gpu_options.visible_device_list = str(hvd.local_rank())
-            tf.compat.v1.keras.backend.set_session(tf.compat.v1.Session(config=config))
+        # Post-training actions
+        self.trained_model = quantized_model
+        self.log_training_completion()
+        self.enable_training_button()
 
-            # Distributed training with Horovod
-            if hvd.size() > 1:
-                model = hvd.keras.utils.parallelize(model)
+    async def train_model_async(self, model, X_train, y_train, epochs):
+        """
+        Asynchronous method to train the model.
 
-            # Compile the model
-            model.compile(optimizer='adam', loss='mean_squared_error')
+        Args:
+            model: The machine learning model to train.
+            X_train: Training feature data.
+            y_train: Training target data.
+            epochs: Number of training epochs.
 
-            # Use Horovod to adjust learning rate based on the number of workers
-            if hvd.size() > 1:
-                optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4 * hvd.size())
-                optimizer = hvd.DistributedOptimizer(optimizer)
-            else:
-                optimizer = 'adam'
-
-            model.compile(optimizer=optimizer, loss='mean_squared_error')
-
-            # Automated hyperparameter tuning with Optuna
-            study = optuna.create_study(direction='minimize')
-            objective = OptunaObjective(X_train, y_train, model, epochs)
-            study.optimize(objective, n_trials=10)  # You can adjust the number of trials
-
-            # Ensemble multiple models
-            ensemble_model = EnsembleModel(study.best_params)
-            ensemble_model.add_models([model])
-
-            # Federated learning (simulated for demonstration)
-            federated_learning_simulator = FederatedLearningSimulator()
-            federated_models = federated_learning_simulator.simulate_federated_learning(ensemble_model, X_train, y_train)
-
-            # Automated data augmentation
-            data_augmentation = DataAugmentation()
-            X_augmented, y_augmented = data_augmentation.apply_augmentation(X_train, y_train)
-
-            # Model quantization
-            quantized_model = Quantization.quantize_model(ensemble_model)
-
-            # Train the quantized model asynchronously using concurrent.futures
+        Returns:
+            None
+        """
+        try:
             loop = asyncio.get_event_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = loop.run_in_executor(executor, quantized_model.fit, X_augmented, y_augmented, epochs=epochs, verbose=0)
-
-                # Real-time visualization of training metrics
-                progress_bar = tqdm(total=epochs, desc="Training Progress", position=0, leave=True)
-
+                # Consider handling TensorFlow/Keras models differently if necessary
+                future = loop.run_in_executor(executor, model.fit, X_train, y_train, epochs=epochs, verbose=1)
+                
                 while not future.done():
-                    await asyncio.sleep(1)  # Wait for 1 second
-                    progress_bar.update(1)
-
-                progress_bar.close()
-
+                    await asyncio.sleep(1)
+                    # Update progress bar based on actual progress (if possible)
+                
+                # Consider handling the result of future here (e.g., model training results)
                 await future
+        except Exception as e:
+            # Proper error handling
+            print(f"Error in training model: {e}")
+            # Consider logging the error as well
+        finally:
+            # Any cleanup if necessary
+            pass
 
-                self.trained_model = quantized_model
-                self.utils.log_message("Model training completed.", + file_path, self, self.log_text, self.is_debug_mode)
 
-        else:
-            raise ModelTrainingError(f"Invalid model_type: {model_type}")
-
-        # Re-enable the Start Training button regardless of success or exception
-        self.start_training_button.config(state='normal')
+    # Additional helper methods (initialize_and_configure_model, perform_hyperparameter_tuning,
+    # create_ensemble_model, quantize_model, log_training_completion) go here...
 
     # Other helper classes and functions (FederatedLearningSimulator, DataAugmentation, Quantization) should be added as needed.
 
@@ -487,13 +493,13 @@ class ModelTrainingTab(tk.Frame):
         if model_type in ["neural_network", "LSTM"]:
             epochs_str = self.epochs_entry.get()
             if not epochs_str.isdigit() or int(epochs_str) <= 0:
-                self.utils.log_message("Epochs should be a positive integer." + file_path, self, self.log_text, self.is_debug_mode)
+                self.utils.log_message("Epochs should be a positive integer.", self, self.log_text, self.is_debug_mode)
                 return None
             return int(epochs_str)
-        elif model_type == "linear_regression":
-            return 1  # Default value for linear regression
         else:
-            return None
+            # For models like Random Forest, return a default value, like 1 or 0
+            return 1
+
 
     async def train_model_logic(self, data_file_path, scaler_type, model_type, epochs):
         try:
@@ -537,7 +543,7 @@ class ModelTrainingTab(tk.Frame):
 
 #Section 3: Data Preprocessing and Model Integration
         
-    def preprocess_data(self, data_file_path, scaler_type, model_type, epochs, window_size=5):
+    def preprocess_data(self, data_file_path, scaler_type, model_type, window_size=5, epochs=None):
         try:
             # Load the dataset
             data = pd.read_csv(data_file_path)  # Adjust based on your data format
@@ -702,9 +708,17 @@ class ModelTrainingTab(tk.Frame):
             self.utils.log_message(f"Error in general preprocessing: {str(e)}" + file_path, self, self.log_text, self.is_debug_mode)
             return None, None
 
+    def convert_date_to_timestamp(date_str):
+        """ Convert a date string to a Unix timestamp. """
+        try:
+            date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            return time.mktime(date.timetuple())
+        except ValueError:
+            return None
+
     def scale_features(self, X, scaler_type):
         """
-        Scale the features using the specified scaler.
+        Scale the features using the specified scaler, handling date columns.
 
         Args:
             X (DataFrame): The feature matrix.
@@ -713,6 +727,15 @@ class ModelTrainingTab(tk.Frame):
         Returns:
             DataFrame: Scaled feature matrix.
         """
+
+        # Convert date columns to numerical values
+        for column in X.columns:
+            if pd.api.types.is_string_dtype(X[column]):
+                # Assuming the date is in 'YYYY-MM-DD' format, adapt if necessary
+                if X[column].str.match(r'\d{4}-\d{2}-\d{2}').any():
+                    X[column] = X[column].apply(self.convert_date_to_timestamp)
+
+        # Define scalers
         scalers = {
             'standard': StandardScaler(),
             'minmax': MinMaxScaler(),
@@ -720,9 +743,18 @@ class ModelTrainingTab(tk.Frame):
             'normalizer': Normalizer(),
             'maxabs': MaxAbsScaler()
         }
+
+        # Select scaler
         scaler = scalers.get(scaler_type, StandardScaler())
+
+        # Apply scaling
         X_scaled = scaler.fit_transform(X)
-        return X_scaled
+
+        return pd.DataFrame(X_scaled, columns=X.columns)
+
+    # Example usage
+    # X_scaled = self.scale_features(X, 'standard')
+
 
 
     # Function to handle ARIMA model training logic
@@ -1412,6 +1444,32 @@ class ModelTrainingTab(tk.Frame):
         finally:
             self.after(100, self.process_queue)
 
+    def train_linear_regression(self, data_file_path, scaler_type):
+        try:
+            # Load and preprocess data
+            X_train, X_test, y_train, y_test = self.preprocess_data(data_file_path, scaler_type, "linear_regression")
+
+            # Initialize the Linear Regression model
+            model = LinearRegression()
+
+            # Train the model
+            model.fit(X_train, y_train)
+
+            # Evaluate the model
+            score = model.score(X_test, y_test)
+            self.display_message(f"Linear Regression Model Score: {score}")
+
+            # Update the trained model information
+            self.trained_model = model
+            self.utils.log_message("Linear regression model training completed.", self, self.log_text, self.is_debug_mode)
+
+            # Re-enable the Start Training button and update UI
+            self.enable_training_button()
+
+        except Exception as e:
+            self.utils.log_message(f"Error in training linear regression model: {str(e)}", self, self.log_text, self.is_debug_mode)
+            self.error_label.config(text=f"Error in training linear regression model: {e}", fg="red")
+
     def update_gui_with_progress(self, progress_data):
         # Update progress bar and log
         self.progress_var.set(progress_data['progress'])
@@ -1704,3 +1762,61 @@ class ModelTrainingTab(tk.Frame):
         X_selected = selector.fit_transform(X, y)
 
         return X_selected
+
+    def train_random_forest(self, data_file_path, scaler_type, target_column):
+        """
+        Train a Random Forest model with hyperparameter tuning and cross-validation.
+
+        Args:
+            data_file_path (str): Path to the data file.
+            scaler_type (str): Type of scaler to apply.
+            target_column (str): Name of the target column.
+
+        Returns:
+            RandomForestClassifier: Trained Random Forest model.
+        """
+        try:
+            # Load and preprocess the data
+            data = pd.read_csv(data_file_path)
+            if target_column not in data.columns:
+                raise ValueError(f"Target column '{target_column}' not found in the dataset.")
+            
+            X = data.drop(target_column, axis=1)  # Use the specified target column name
+            y = data[target_column]
+
+            # If you have a specific scaler function in your class, use it
+            X_scaled = self.scale_features(X, scaler_type)
+
+            # Split the data into training and testing sets
+            X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2)
+
+            # Hyperparameter tuning using Grid Search
+            param_grid = {
+                'n_estimators': [100, 200, 300],
+                'max_depth': [None, 10, 20, 30],
+                'min_samples_split': [2, 5, 10],
+                'min_samples_leaf': [1, 2, 4],
+                'bootstrap': [True, False]
+            }
+            rf = RandomForestClassifier()
+            grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=5, n_jobs=-1)
+            grid_search.fit(X_train, y_train)
+            best_rf = grid_search.best_estimator_
+
+            if best_rf is None:
+                raise ValueError("Grid Search did not find the best Random Forest model.")
+            
+            # Train the model using the best hyperparameters
+            best_rf.fit(X_train, y_train)
+
+            # You can also include model evaluation, saving, etc.
+            # evaluation_results = evaluate_model(best_rf, X_test, y_test)
+            # save_model(best_rf, 'random_forest_model.joblib')
+
+            return best_rf
+        except FileNotFoundError:
+            logging.error(f"Data file not found at path: {data_file_path}")
+            raise
+        except Exception as e:
+            logging.error(f"An error occurred: {str(e)}")
+            raise

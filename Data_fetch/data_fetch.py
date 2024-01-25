@@ -17,9 +17,9 @@ import configparser
 
 # Define API URLs
 API_URLS = {
-    "AlphaVantage": "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={}&apikey={}",
+    "alphavantage": "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={}&apikey={}",
     "polygonio": "https://api.polygon.io/v2/aggs/ticker/{}/range/1/day/2000-01-01/2023-08-06?apiKey={}",
-    "Nasdaq": "https://dataondemand.nasdaq.com/api/v1/historical/{}?apiKey={}"
+    "nasdaq": "https://dataondemand.nasdaq.com/api/v1/historical/{}?apiKey={}"
 }
 
 
@@ -50,7 +50,7 @@ def validate_config(config):
         bool: True if validation is successful, False otherwise.
     """
     required_settings = {
-        'API': ['AlphaVantage', 'Polygonio', 'Nasdaq'],
+        'API': ['alphavantage', 'polygonio', 'nasdaq'],
         'Settings': ['csv_directory']
     }
 
@@ -84,9 +84,9 @@ def read_api_keys_from_config():
     """
     config = configparser.ConfigParser()  # This is the correct way to use ConfigParser
     config.read('config.ini')
-    alpha_vantage_api_key = config.get('API', 'AlphaVantage')
-    polygonio_api_key = config.get('API', 'Polygonio')
-    nasdaq_api_key = config.get('API', 'Nasdaq')
+    alpha_vantage_api_key = config.get('API', 'alphavantage')
+    polygonio_api_key = config.get('API', 'polygonio')
+    nasdaq_api_key = config.get('API', 'nasdaq')
     return alpha_vantage_api_key, polygonio_api_key, nasdaq_api_key
 
 

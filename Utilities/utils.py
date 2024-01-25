@@ -10,19 +10,19 @@ class MLRobotUtils:
     def __init__(self, is_debug_mode=False):
         self.is_debug_mode = is_debug_mode
 
-    def log_message(self, message, tk_parent, log_text_widget, is_debug_mode=False):
+    def log_message(self, message, root_window, log_text_widget=None, is_debug_mode=False):
         if is_debug_mode:
-            print(message)
+            print(message)  # Log to the console
 
-        def append_message():
-            log_text_widget.config(state='normal')
-            log_text_widget.insert(tk.END, message + "\n")
-            log_text_widget.config(state='disabled')
-            log_text_widget.see(tk.END)
+        if log_text_widget and root_window:  # Check if log_text_widget and root_window are provided
+            def append_message():
+                log_text_widget.config(state='normal')
+                log_text_widget.insert(tk.END, message + "\n")
+                log_text_widget.config(state='disabled')
+                log_text_widget.see(tk.END)
 
-        # Ensure the GUI update is done in a thread-safe manner
-        tk_parent.after(0, append_message)
-
+            # Ensure the GUI update is done in a thread-safe manner using the existing root window
+            root_window.after(0, append_message)
 
     def select_directory(self, entry):
         directory = filedialog.askdirectory()
@@ -46,19 +46,8 @@ class MLRobotUtils:
             entry.insert(0, directory)
             if self.is_debug_mode:
                 self.log_message(f"Debug: Directory selected - {directory}")
-                    
-    def log_message(self, message, log_text_widget, is_debug_mode):
-        # Log to the terminal
-        print(message)
 
-        # Log to the GUI's text box if it's provided
-        if log_text_widget:
-            log_text_widget.config(state=tk.NORMAL)
-            log_text_widget.insert(tk.END, message + "\n")
-            log_text_widget.config(state=tk.DISABLED)
-
-
-    def auto_generate_save_path(input_file_path, base_dir):
+    def auto_generate_save_path(self, input_file_path, base_dir):
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         
         # Extract the base name (without extension) and extension
@@ -72,6 +61,7 @@ class MLRobotUtils:
         new_filename = f"{base_name}_processed_{timestamp}.csv"
         
         return os.path.join(base_dir, new_filename)
+
 
     # Function to generate the save path based on file_path and config
 
@@ -215,32 +205,40 @@ class MLRobotUtils:
             canvas_widget = canvas.get_tk_widget()
             canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-    def browse_file(self):
+    def browse_file(self, entry_widget):
+        """
+        Open a file dialog and set the selected file path in the provided Entry widget.
+
+        Args:
+            entry_widget (tk.Entry): The Entry widget to set the file path in.
+
+        Returns:
+            None
+        """
         # Open a file dialog to choose a CSV file
         file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
         
-        # If a file is selected, update the file_path_entry with this path
+        # If a file is selected, update the provided entry_widget with this path
         if file_path:
-            self.file_path_entry.delete(0, tk.END)  # Clear any existing text in the entry
-            self.file_path_entry.insert(0, file_path)  # Insert the selected file path
+            entry_widget.delete(0, tk.END)  # Clear any existing text in the entry
+            entry_widget.insert(0, file_path)  # Insert the selected file path
+
 
     def clear_logs(self):
         if hasattr(self, 'log_text'):
             self.log_text.delete('1.0', tk.END)  # Clear the content of the log text widget
 
 
-    def toggle_debug_mode(self):
+    def toggle_debug_mode(self, debug_mode_button):
         # Toggle debug mode state
-        self.debug_mode = not self.debug_mode
-
-        # Update the MLRobotUtils instance with the new debug mode state
-        self.utils.is_debug_mode = self.debug_mode
+        self.is_debug_mode = not self.is_debug_mode
 
         # Update the button text to reflect the current state
-        if self.debug_mode:
-            self.debug_mode_button.config(text="Debug Mode: ON")
+        if self.is_debug_mode:
+            debug_mode_button.config(text="Debug Mode: ON")
         else:
-            self.debug_mode_button.config(text="Debug Mode: OFF")
+            debug_mode_button.config(text="Debug Mode: OFF")
+
 
     def browse_save_directory(self):
         """Open a file dialog to select the save directory."""

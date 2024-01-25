@@ -17,6 +17,8 @@ def setup_logging(config):
 
     logging.basicConfig(format=log_format, datefmt=log_datefmt, level=level)
 
+def get_logger():
+    return logging.getLogger(__name__)
 
 def log_info(message):
     """

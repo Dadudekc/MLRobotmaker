@@ -34,7 +34,7 @@ def validate_config(config):
         bool: True if validation is successful, False otherwise.
     """
     required_settings = {
-        'API': ['AlphaVantage', 'Polygonio', 'Nasdaq'],
+        'API': ['alphavantage', 'polygonio', 'nasdaq'],
         'Settings': ['csv_directory']
     }
 
@@ -48,3 +48,5 @@ def validate_config(config):
                 return False
 
     return True
+
+

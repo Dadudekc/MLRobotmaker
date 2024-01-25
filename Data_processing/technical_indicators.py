@@ -769,7 +769,7 @@ class TechnicalIndicators:
         Args:
             df (pd.DataFrame): DataFrame containing stock price data.
             dynamic (bool): If True, calculates a dynamic threshold based on historical volatility. 
-                            If False, uses a fixed threshold.
+                            If False, uses a fixed threshold. Defaults to True.
             fixed_threshold (float): Fixed threshold value to be used if dynamic is False. Defaults to 2.0.
             vol_window (int): The window size for calculating historical volatility if dynamic is True. Defaults to 20.
 
@@ -789,6 +789,7 @@ class TechnicalIndicators:
         return threshold
 
 
+
     @staticmethod
     def add_zigzag_indicator(df, lookback=5, dynamic_threshold=True, fixed_threshold=2.0, vol_window=20):
         threshold = TechnicalIndicators.determine_threshold(df, dynamic=dynamic_threshold, fixed_threshold=fixed_threshold, vol_window=vol_window)
@@ -802,7 +803,9 @@ class TechnicalIndicators:
         for i in range(lookback, len(df)):
             current_close = df['close'].iloc[i]
             previous_close = df['close'].iloc[i - lookback]
-            current_threshold = threshold.iloc[i]['Historical_Volatility']
+
+            # Check if the current_threshold is a valid DataFrame or Series
+            current_threshold = threshold['Historical_Volatility'].iloc[i] if isinstance(threshold, pd.DataFrame) else threshold.iloc[i]
 
             # Debugging: Print the types and values of variables used in the comparison
             print(f"Index: {i}, Current Close: {current_close}, Previous Close: {previous_close}, Current Threshold: {current_threshold}")

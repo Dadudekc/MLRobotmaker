@@ -57,19 +57,29 @@ def train_model(X_train, y_train, model_type='linear_regression'):
     return model
 
 # Function for creating a customizable neural network model
+
+
 def create_neural_network(input_shape, layers=[128, 64], output_units=1, output_activation=None,
                           activation='relu', dropout_rate=0.0, optimizer='adam', loss='mean_squared_error', metrics=None):
     """
     Create a customizable neural network for regression tasks with extended flexibility.
 
     Args:
-        ... [parameters as before] ...
+        input_shape (tuple): The shape of the input data, excluding the batch size.
+        layers (list): List of integers, the size of each dense layer.
+        output_units (int): Number of units in the output layer.
+        output_activation (str): Activation function for the output layer.
+        activation (str): Activation function for the hidden layers.
+        dropout_rate (float): Dropout rate, between 0 and 1.
+        optimizer (str): Optimizer to use.
+        loss (str): Loss function.
+        metrics (list): List of metrics to be evaluated by the model during training and testing.
 
     Returns:
-        model: A compiled neural network model.
+        tf.keras.Model: A compiled neural network model.
     """
     model = tf.keras.Sequential()
-    model.add(tf.keras.layers.InputLayer(input_shape=(input_shape,)))
+    model.add(tf.keras.layers.InputLayer(input_shape=input_shape))  # Use the tuple input_shape directly
 
     for units in layers:
         model.add(tf.keras.layers.Dense(units, activation=activation))
@@ -80,6 +90,7 @@ def create_neural_network(input_shape, layers=[128, 64], output_units=1, output_
     model.add(tf.keras.layers.Dense(output_units, activation=output_activation))
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     return model
+
 
 # Function for creating an LSTM model (Placeholder - Implement as needed)
 def create_lstm_model(input_shape, lstm_layers=[50, 50], dropout_rates=[0.2, 0.2], optimizer='adam', loss='mean_squared_error'):

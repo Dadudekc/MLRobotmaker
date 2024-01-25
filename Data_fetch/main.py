@@ -1,60 +1,61 @@
 #main.py
 
-# Importing necessary modules
-from . import alpha_vantage, polygon_io, nasdaq
-import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sys
+import traceback
+
+# Get the directory containing 'main.py' (the script's location)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Get the project directory by going up one level from the script's location
+project_dir = os.path.dirname(script_dir)
+
+# Append the project directory to the Python path
+sys.path.append(project_dir)
+
+from Data_fetch import alpha_vantage_df, polygon_io, nasdaq
 from Utilities import config_utils, logging_utils, file_management
+from Data_fetch.alpha_vantage_df import AlphaVantageDataFetcher
 
-def main(csv_dir='default_csv_dir', ticker_symbols=['default_symbol'], start_date='default_start_date', end_date='default_end_date', selected_api='default_api'):
-    # Adjusted the path to reference the parent directory
-    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    config_path = os.path.join(script_dir, 'config.ini')
-    
-    # Load and validate the configuration
-    config = config_utils.load_config(config_path)
-    if not config_utils.validate_config(config):
-        print("Configuration validation failed.")
-        return
+def main(csv_dir='default_csv_dir', ticker_symbols=['default_symbol'], start_date='default_start_date', end_date='default_end_date', selected_api='Alpha Vantage'):
+    try:
 
-    # Set up logging
-    logging_utils.setup_logging(config)
+        # Get the directory where the script is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Fetch the API key from the configuration based on the selected API
-    api_keys = {
-        'AlphaVantage': config['API']['alphavantage'],
-        'Polygon': config['API']['polygonio'],
-        'Nasdaq': config['API']['nasdaq']
-    }
-    print(f"Loaded API keys from configuration: {api_keys}")
-    api_key = api_keys.get(selected_api, None)
-    if not api_key:
-        print(f"API key for {selected_api} not found in configuration.")
-        return
-
-    # Define symbols to fetch data for
-    symbols = ticker_symbols if ticker_symbols else ['AAPL', 'MSFT', 'GOOGL']
-
-    # Fetch data from different APIs based on selected_api
-    if selected_api == 'AlphaVantage':
-        av_data = alpha_vantage.fetch_data_from_alpha_vantage(ticker_symbols, config, api_key, csv_dir, start_date, end_date)
-        print(f"Type of data from AlphaVantage API: {type(av_data)}")  # Debug print statement
-        file_path = os.path.join(csv_dir, 'alpha_vantage_data.csv')
-        file_management.save_data_to_csv(av_data, file_path)
-    elif selected_api == 'Polygon':
-        po_data = polygon_io.fetch_data_from_polygon(ticker_symbols, config, api_key, csv_dir, start_date, end_date)
-        print(f"Type of data from Polygon.io API: {type(po_data)}")  # Debug print statement
-        file_path = os.path.join(csv_dir, 'polygon_io_data.csv')
-        file_management.save_data_to_csv(po_data, file_path)
-    elif selected_api == 'Nasdaq':
-        nasdaq_data = nasdaq.fetch_data_from_nasdaq(ticker_symbols, config, api_key, csv_dir, start_date, end_date)
-        print(f"Type of data from Nasdaq API: {type(nasdaq_data)}")  # Debug print statement
-        file_path = os.path.join(csv_dir, 'nasdaq_data.csv')
-        file_management.save_data_to_csv(nasdaq_data, file_path)
+        # Set up the relative path to config.ini
+        config_path = os.path.join(script_dir, '..', 'config.ini')
 
 
-    # Additional operations can be added as needed
+        # Create an instance of AlphaVantageDataFetcher
+        av_fetcher = AlphaVantageDataFetcher(config_path, csv_dir)
 
-if __name__ == '__main__':
-    main()
+        # Fetch and save data based on the selected API
+        for symbol in ticker_symbols:
+            try:
+                file_path = os.path.join(csv_dir, f'{symbol}_data.csv')
+                if selected_api == 'Alpha Vantage':
+                    av_data = av_fetcher.fetch_data([symbol], start_date, end_date)
+                    if av_data is not None:
+                        av_fetcher.save_data_to_csv(av_data, symbol)
+                elif selected_api == 'Polygon':
+                    # Add the logic for Polygon API
+                    pass
+                elif selected_api == 'Nasdaq':
+                    # Add the logic for Nasdaq API
+                    pass
+                else:
+                    print(f"Unsupported API selected: {selected_api}")
+                    return
+            except Exception as e:
+                traceback.print_exc()
+                print(f"Error during data fetching for {symbol}: {e}")
+
+    except Exception as e:
+        traceback.print_exc()
+        print(f"Error in main function: {e}")
+
+
+if __name__ == "__main__":
+    # Call the main function with your desired parameters
+    main(csv_dir=os.path.join(project_dir, 'Data_fetch'), ticker_symbols=['AAPL', 'MSFT'], start_date='2022-01-01', end_date='2022-12-31', selected_api='Alpha Vantage')

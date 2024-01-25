@@ -1,0 +1,79 @@
+2024-01-23 07:22:17,189 [ERROR] - Unexpected error for AAPL: 'Value based partial slicing on non-monotonic DatetimeIndexes with non-existing keys is not allowed.'
+2024-01-23 07:28:55,402 [ERROR] - Unexpected error for AAPL: 'symbol'
+2024-01-23 07:31:08,592 [WARNING] - Requested date range 2022-01-01 00:00:00 to 2022-12-31 00:00:00 is out of available data range for AAPL
+2024-01-23 07:37:25,351 [WARNING] - Requested date range 2022-01-01 00:00:00 to 2022-12-31 00:00:00 is out of available data range for AAPL
+2024-01-23 07:40:23,984 [WARNING] - Requested date range 2022-01-01 00:00:00 to 2022-12-31 00:00:00 is out of available data range for AAPL
+2024-01-23 07:41:08,150 [WARNING] - Requested date range 2022-01-01 00:00:00 to 2022-12-31 00:00:00 is out of available data range for AAPL
+2024-01-23 07:41:46,267 [WARNING] - Requested date range 2022-01-01 00:00:00 to 2022-12-31 00:00:00 is out of available data range for AAPL
+2024-01-23 07:42:42,827 [WARNING] - Requested date range 2023-01-01 00:00:00 to 2023-12-31 00:00:00 is out of available data range for AAPL
+2024-01-23 07:53:29,578 [ERROR] - Error decoding JSON response for AAPL: Expecting value: line 1 column 1 (char 0)
+2024-01-23 07:54:25,741 [ERROR] - Unexpected error for symbol AAPL: 'Value based partial slicing on non-monotonic DatetimeIndexes with non-existing keys is not allowed.'
+2024-01-23 07:55:08,607 [INFO] - Data for AAPL saved to c:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot\Data_fetch\AAPL_data.csv
+2024-01-23 21:57:16,453 [ERROR] - Configuration file not found: c:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot\Data_fetch\config.ini
+2024-01-23 21:57:16,455 [ERROR] - Configuration is not loaded.
+2024-01-23 21:57:16,677 [WARNING] - No data found for symbol: AAPL
+2024-01-23 21:57:16,679 [WARNING] - No data to save for symbol: AAPL
+2024-01-23 21:57:16,837 [WARNING] - No data found for symbol: MSFT
+2024-01-23 21:57:16,839 [WARNING] - No data to save for symbol: MSFT
+2024-01-23 21:57:46,589 [ERROR] - Configuration file not found: c:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot\Data_fetch\config.ini
+2024-01-23 21:57:46,592 [ERROR] - Configuration is not loaded.
+2024-01-23 21:57:46,754 [WARNING] - No data found for symbol: AAPL
+2024-01-23 21:57:46,757 [WARNING] - No data to save for symbol: AAPL
+2024-01-23 21:57:46,923 [WARNING] - No data found for symbol: MSFT
+2024-01-23 21:57:46,925 [WARNING] - No data to save for symbol: MSFT
+2024-01-23 21:58:25,741 [ERROR] - Configuration file not found: c:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot\Data_fetch\config.ini
+2024-01-23 21:58:25,741 [ERROR] - Configuration file not found: c:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot\Data_fetch\config.ini
+2024-01-23 21:58:25,742 [ERROR] - Configuration is not loaded.
+2024-01-23 21:58:25,742 [ERROR] - Configuration is not loaded.
+2024-01-23 21:58:25,912 [WARNING] - No data found for symbol: sq
+2024-01-23 21:58:25,912 [WARNING] - No data found for symbol: sq
+2024-01-23 21:58:25,913 [WARNING] - No data to save for symbol: sq
+2024-01-23 21:58:25,913 [WARNING] - No data to save for symbol: sq
+2024-01-24 05:17:36,283 [ERROR] - Configuration file not found: c:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot\Data_fetch\config.ini
+2024-01-24 05:17:36,284 [ERROR] - Configuration is not loaded.
+2024-01-24 05:17:36,825 [WARNING] - No data found for symbol: AAPL
+2024-01-24 05:17:36,827 [WARNING] - No data to save for symbol: AAPL
+2024-01-24 05:17:38,324 [WARNING] - No data found for symbol: MSFT
+2024-01-24 05:17:38,325 [WARNING] - No data to save for symbol: MSFT
+2024-01-24 05:20:52,347 [ERROR] - Configuration file not found: c:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot\Data_fetch\.config.ini
+2024-01-24 05:20:52,348 [ERROR] - Configuration is not loaded.
+2024-01-24 05:21:06,399 [WARNING] - No data found for symbol: AAPL
+2024-01-24 05:21:06,401 [WARNING] - No data to save for symbol: AAPL
+2024-01-24 05:21:10,165 [WARNING] - No data found for symbol: MSFT
+2024-01-24 05:21:10,167 [WARNING] - No data to save for symbol: MSFT
+2024-01-24 05:25:05,092 [INFO] - Data for AAPL saved to c:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot\Data_fetch\AAPL_data.csv
+2024-01-24 05:25:08,125 [INFO] - Data for MSFT saved to c:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot\Data_fetch\MSFT_data.csv
+2024-01-24 05:46:10,239 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 05:46:10,239 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 06:55:48,691 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:18:15,205 [WARNING] - No data to save for symbol: sq
+2024-01-24 07:18:21,399 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:18:21,399 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:39:16,301 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:39:54,446 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:39:54,446 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:43:11,611 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:43:11,611 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:43:11,611 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:52:49,134 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:55:37,217 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:55:37,217 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:56:10,957 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:56:10,957 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 07:56:10,957 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 09:08:12,551 [INFO] - Data for sq saved to sq_data.csv
+2024-01-24 09:11:52,248 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 09:21:21,603 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 09:31:53,336 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 09:35:33,503 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 09:41:09,406 [INFO] - Data for sq saved to sq_data.csv
+2024-01-24 09:41:27,570 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 09:41:27,570 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 10:33:15,576 [INFO] - Data for sa saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sa_data.csv
+2024-01-24 10:33:26,661 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 10:33:26,661 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 10:41:53,252 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 10:46:16,559 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 17:06:35,673 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 17:06:39,953 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv
+2024-01-24 17:06:39,953 [INFO] - Data for sq saved to C:/Users/Dagurlkc/OneDrive/Desktop/DaDudeKC/MLRobot/Models/Metadata\sq_data.csv

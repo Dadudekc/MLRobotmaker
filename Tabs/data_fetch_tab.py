@@ -17,11 +17,17 @@ import sys
 sys.path.append(r'C:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot')
 from Utilities.Utils import MLRobotUtils
 from Data_fetch.main import main as fetch_main
-from candlestick_chart import CandlestickChart
+from Data_fetch.alpha_vantage_df import AlphaVantageDataFetcher
+from Data_processing.visualization import ChartCreator
 
+# Define the project directory here
+project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Define the path to the config file
+config_path = os.path.join(project_dir, 'config.ini')
 
 class DataFetchTab:
     def __init__(self, parent=None, config=None, is_debug_mode=False):
+        self.fetched_data = None 
         self.parent = parent
         self.config = config
         self.is_debug_mode = is_debug_mode
@@ -115,13 +121,14 @@ class DataFetchTab:
         self.chart_frame.grid(row=6, column=0, padx=10, pady=10, sticky="nsew")
 
         # Initialize 'data' to None
-        self.data = None
+        self.fetched_data = None
 
         # Create an instance of CandlestickChart
         self.candlestick_chart = None
 
         # Create "Create Chart" button
-        self.create_chart_button = ttk.Button(input_frame, text="Create Chart", command=self.candlestick_chart)
+        self.create_chart_button = ttk.Button(input_frame, text="Create Chart", command=self.generate_candlestick_chart)
+
         self.create_chart_button.grid(row=7, column=0, columnspan=2, padx=5, pady=10, sticky='ew')
 
         # Fetch All Button
@@ -156,12 +163,11 @@ class DataFetchTab:
         if not self.validate_inputs():
             return
 
-        # Initialize or reset the progress bar
-        if self.progress_bar is None or not hasattr(self.progress_bar, 'winfo_exists') or not self.progress_bar.winfo_exists():
-            self.progress_bar = ttk.Progressbar(self.status_label.master, mode="indeterminate")
-            self.progress_bar.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
-            self.progress_bar["value"] = 0
+        try:
+            # Initialize or reset the progress bar
             self.progress_bar.start()
+
+            # Get user input
             user_input = self.tickers_entry.get()
             ticker_symbols = user_input.split(',')
             csv_dir = self.save_directory_entry.get()
@@ -169,23 +175,42 @@ class DataFetchTab:
             end_date = self.end_date_entry.get()
             selected_api = self.api_dropdown.get()
 
+            # Create an instance of AlphaVantageDataFetcher
+            av_fetcher = AlphaVantageDataFetcher(config_path, csv_dir)
 
-        if self.is_debug_mode:
-            # Logging messages
-            self.utils.log_message("Debug: Fetch request received", self.log_text, self.is_debug_mode)
-            self.utils.log_message(f"Debug: CSV Directory - {csv_dir}", self.log_text, self.is_debug_mode)
-            self.utils.log_message(f"Debug: Tickers - {ticker_symbols}", self.log_text, self.is_debug_mode)
-            self.utils.log_message(f"Debug: Start Date - {start_date}, End Date - {end_date}", self.log_text, self.is_debug_mode)
-            self.utils.log_message(f"Debug: API Selected - {selected_api}", self.log_text, self.is_debug_mode)
+            # Initialize an empty DataFrame to store combined data
+            combined_data = pd.DataFrame()
 
+            # Fetch and save data for each symbol
+            for symbol in ticker_symbols:
+                symbol = symbol.strip()
+                if not symbol:
+                    continue
 
-        # Disable the fetch_all_button and update status
-        self.fetch_all_button.config(state=tk.DISABLED)
-        self.status_label.config(text=f"Fetching data for {ticker_symbols}...")
+                if selected_api == 'Alpha Vantage':
+                    av_data = av_fetcher.fetch_data([symbol], start_date, end_date)
+                    if av_data is not None:
+                        # Convert columns to numeric and handle non-numeric values
+                        numeric_columns = ['open', 'high', 'low', 'close', 'volume']
+                        for column in numeric_columns:
+                            av_data[column] = pd.to_numeric(av_data[column], errors='coerce')
+                        av_data.fillna(method='ffill', inplace=True)
 
-        # Start a new thread to fetch data
-        threading.Thread(target=lambda: self.fetch_data_threaded(csv_dir, ticker_symbols, start_date, end_date, selected_api)).start()
+                        # Append this symbol's data to the combined DataFrame
+                        combined_data = pd.concat([combined_data, av_data])
 
+                        # Save individual symbol data to CSV
+                        av_fetcher.save_data_to_csv(av_data, symbol)
+
+            # Store the combined fetched data
+            self.fetched_data = combined_data
+            self.status_label.config(text="Data fetch completed")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {e}")
+        finally:
+            self.progress_bar.stop()
+            self.progress_bar['value'] = 0  # Reset progress bar to 0
 
     def fetch_all_data(self):
         try:
@@ -202,7 +227,7 @@ class DataFetchTab:
                 self.status_label.config(text="Fetching all available data...")
  
             # Retrieve the Alpha Vantage API key from the config file
-            api_key = self.config.get('API_KEYS', 'AlphaVantage', fallback='YOUR_DEFAULT_API_KEY')
+            api_key = self.config.get('API', 'alphavantage', fallback='YOUR_DEFAULT_API_KEY')
 
             # Initialize Alpha Vantage TimeSeries
             ts = TimeSeries(key=api_key, output_format='pandas')
@@ -254,7 +279,7 @@ class DataFetchTab:
         finally:
             self.fetch_button.config(state=tk.NORMAL)
             self.fetch_all_button.config(state=tk.NORMAL)
-            
+                
     def fetch_data_threaded(self, csv_dir, ticker_symbols, start_date, end_date, selected_api):
         try:
             # Initialize a list to store error messages
@@ -278,6 +303,9 @@ class DataFetchTab:
             self.status_label.config(text="Merging data... 0%")
             self.parent.update_idletasks()  # Force update the UI
 
+            # Log the inputs
+            self.utils.log_message(f"Fetching data for tickers: {ticker_symbols}, start date: {start_date}, end date: {end_date}, API: {selected_api}", self.log_text, self.is_debug_mode)
+
             # Iterate through each ticker symbol to handle each data file
             for idx, ticker in enumerate(ticker_symbols):
                 ticker = ticker.strip()
@@ -287,15 +315,24 @@ class DataFetchTab:
                 # Update progress_percent for each ticker
                 progress_percent = int((idx + 1) / len(ticker_symbols) * 100)
 
+                # Log the fetch attempt
+                self.utils.log_message(f"Fetching data for {ticker}: Start Date - {start_date}, End Date - {end_date}, API - {selected_api}", self.log_text, self.is_debug_mode)
+
                 # Fetch the data
                 data = fetch_main(csv_dir, [ticker], start_date, end_date, selected_api)
+
+                # Log if data is empty or not
+                if data is not None and not data.empty:
+                    self.utils.log_message(f"Data successfully fetched for {ticker}", self.log_text, self.is_debug_mode)
+                else:
+                    self.utils.log_message(f"No data fetched for {ticker}", self.log_text, self.is_debug_mode)
 
                 file_name = f'{ticker}_data.csv'
                 file_path = os.path.join(save_dir, file_name)
 
                 try:
                     # Check if data is not None before saving
-                    if data is not None:
+                    if data is not None and not data.empty:
                         # Save the data to a CSV file
                         data.to_csv(file_path, index=False)
                         self.utils.log_message(f"Data for {ticker} saved to {file_path}", self.log_text, self.is_debug_mode)
@@ -330,9 +367,10 @@ class DataFetchTab:
             self.fetch_all_button.config(state=tk.NORMAL)
             # Stop the progress bar here
             self.progress_bar.stop()
-            self.progress_bar["value"] = 100  # Set progress to 100 (completed)
+            self.progress_bar['value'] = 100  # Reset progress bar to 0
             self.status_label.config(text="Data fetch completed")
             self.progress_bar.destroy()
+
 
     def validate_inputs(self):
         """Validate user inputs before fetching data."""
@@ -405,6 +443,23 @@ class DataFetchTab:
         else:
             logger.error(f"Error: {message}")
             self.utils.log_message(f"Error: {message}", self.log_text, self.is_debug_mode)
+                
+    def generate_candlestick_chart(self):
+        try:
+            # Check if the fetched data is available
+            if self.fetched_data is None or self.fetched_data.empty:
+                raise ValueError("No data available for creating the chart. Fetch data first.")
 
+            # Create an instance of ChartCreator with the fetched data
+            chart_creator = ChartCreator(self.parent, data=self.fetched_data)
+            title = "Candlestick Chart"
+            save_path = os.path.join(self.save_directory_entry.get(), "candlestick_chart.png")
+            chart_creator.create_candlestick_chart(title=title, save_path=save_path)
 
-
+            # Update the status label
+            self.status_label.config(text=f"Candlestick chart created and saved as {save_path}")
+        except Exception as e:
+            # Handle errors if any
+            error_message = f"Error creating candlestick chart: {str(e)}"
+            self.utils.log_message(error_message, self.log_text, self.is_debug_mode)
+            messagebox.showerror("Error", error_message)
