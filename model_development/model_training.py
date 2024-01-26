@@ -329,5 +329,50 @@ def load_model(file_path):
     else:
         raise ValueError("Unsupported model file format or extension")
 
+
+
+def train_hist_gradient_boosting(self, data_file_path, scaler_type, target_column='close'):
+    try:
+        # Load the data from the provided file path (modify this as needed)
+        df = pd.read_csv(data_file_path)
+
+        # Handle missing values (you can choose forward fill or backward fill)
+        df.fillna(method='ffill', inplace=True)  # Use forward fill for missing values
+
+        # Extract features and target
+        X = df.drop(target_column, axis=1)  # Assuming the target column is labeled 'close'
+        y = df[target_column]
+
+        # Continue with the rest of your code (scaling, splitting, and training)
+        # Perform data scaling if needed (you can choose StandardScaler or other scalers)
+        if scaler_type == "standard":
+            scaler = StandardScaler()
+        else:
+            raise ValueError(f"Unsupported scaler type: {scaler_type}")
+
+        X_scaled = scaler.fit_transform(X)
+
+        # Split the dataset into training and testing sets
+        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+        # Create an instance of the GradientBoostingRegressor
+        gbr = GradientBoostingRegressor()
+
+        # Train the model
+        gbr.fit(X_train, y_train)
+
+        # Evaluate the model (you can add evaluation metrics here)
+        train_score = gbr.score(X_train, y_train)
+        test_score = gbr.score(X_test, y_test)
+
+        # You can print or log the training and testing scores
+        print(f"Training Score: {train_score}")
+        print(f"Testing Score: {test_score}")
+
+        # Return the trained model
+        return gbr
+
+    except Exception as e:
+        messagebox.showerror("Error", f"An error occurred: {str(e)}")
 # Example usage
 # model = load_model('path_to_your_model_file')

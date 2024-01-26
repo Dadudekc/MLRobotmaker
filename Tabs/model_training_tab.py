@@ -1,6 +1,6 @@
 # model_training_tab.py
 
-# Section 1: Imports and Class Initialization
+# Section 1: Imports
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import configparser
@@ -23,16 +23,14 @@ from sklearn.preprocessing import (
     StandardScaler, MinMaxScaler, RobustScaler, Normalizer, MaxAbsScaler,
 )
 from sklearn.compose import ColumnTransformer
-
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 import tensorflow as tf
 from tensorflow.keras.models import (
     save_model as save_keras_model, Sequential as NeuralNetwork, Model
 )
 from tensorflow.keras.layers import Dense, LSTM
-
 from sklearn.feature_selection import SelectKBest, f_regression
 import optuna
 import schedule
@@ -48,79 +46,53 @@ import smtplib  # For sending email notifications
 from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
 import queue
+from sklearn.preprocessing import OrdinalEncoder
 
-# Additional import for RandomForestClassifier
+# Section 1.1: Additional Imports for RandomForestClassifier
 from xgboost import XGBRegressor
 import pandas as pd
 import time
 import datetime
+from sklearn.impute import SimpleImputer
+from tkinter import messagebox
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestRegressor
+# Section 1.2: Model training tab class
 
 class ModelTrainingTab(tk.Frame):
     def __init__(self, parent, config, scaler_options):
         super().__init__(parent)
-        self.is_debug_mode = False 
-        # Boolean flag to indicate if the training process is currently active
-        self.training_in_progress = True
-
-        # Boolean flag to indicate if the training process is currently paused
-        self.training_paused = False
-
-        # Configuration settings (e.g., model parameters, file paths)
-        self.config = config
-
-        # Options for data scaling, typically used in model preprocessing
-        self.scaler_options = scaler_options
-
-        # List to store references to trained models
-        self.trained_models = []
-
-        # Reference to the currently trained model (initialized as None)
-        self.trained_model = None
-
-        # Utility object for various operations (e.g., logging, path generation)
+        self.is_debug_mode = False  # Boolean flag to indicate debug mode
+        self.training_in_progress = True  # Flag for active training
+        self.training_paused = False  # Flag for paused training
+        self.config = config  # Configuration settings
+        self.scaler_options = scaler_options  # Data scaling options
+        self.trained_models = []  # List for trained models
+        self.trained_model = None  # Current trained model reference
         self.utils = MLRobotUtils(is_debug_mode=config.getboolean('Settings', 'DebugMode', fallback=False))
-
-        # Setting up the main GUI components of the model training tab
-        self.setup_model_training_tab()
-
-        # StringVar to hold the type of scaler selected by the user
+        self.setup_model_training_tab()  # Initialize GUI components
         self.scaler_type_var = tk.StringVar()
-
-
-        # Entry widget for user to input the number of estimators
-        self.n_estimators_entry = tk.Entry(self)
+        self.n_estimators_entry = tk.Entry(self)  # Entry for the number of estimators
         self.n_estimators_entry.pack()
-        
-        # Label and Entry widget for specifying the window size for models
-        self.window_size_label = tk.Label(self, text="Window Size:")
-        self.window_size_entry = tk.Entry(self)
-
-        # Placeholder for a trained data scaler object
-        self.trained_scaler = None
-
-        # Queue for managing asynchronous tasks or messages
-        self.queue = queue.Queue()
-
-        # Regularly process items in the queue (every 100 milliseconds)
-        self.after(100, self.process_queue)
-
-        # Button to pause the training process
+        self.window_size_label = tk.Label(self, text="Window Size:")  # Label for window size
+        self.window_size_entry = tk.Entry(self)  # Entry for window size
+        self.trained_scaler = None  # Trained data scaler
+        self.queue = queue.Queue()  # Queue for asynchronous tasks
+        self.after(100, self.process_queue)  # Regular queue processing
         self.pause_button = ttk.Button(self, text="Pause Training", command=self.pause_training)
         self.pause_button.pack(pady=5)
-
-        # Button to resume the training process
         self.resume_button = ttk.Button(self, text="Resume Training", command=self.resume_training)
         self.resume_button.pack(pady=5)
-
-        # Label for displaying error messages related to input validation
-        self.error_label = tk.Label(self, text="", fg="red")
+        self.error_label = tk.Label(self, text="", fg="red")  # Label for error messages
         self.error_label.pack()
         self.setup_debug_mode_toggle()
 
+    # Function to set up the debug mode toggle button
     def setup_debug_mode_toggle(self):
         self.debug_button = tk.Button(self, text="Enable Debug Mode", command=self.toggle_debug_mode)
         self.debug_button.pack(pady=5)
 
+    # Function to toggle the debug mode on button click
     def toggle_debug_mode(self):
         self.is_debug_mode = not self.is_debug_mode
         btn_text = "Disable Debug Mode" if self.is_debug_mode else "Enable Debug Mode"
@@ -128,7 +100,7 @@ class ModelTrainingTab(tk.Frame):
         # Include the is_debug_mode flag in the log_message call
         self.utils.log_message("Debug mode: " + str(self.is_debug_mode), self, self.log_text, self.is_debug_mode)
 
-
+    # Function to set up the entire model training tab
     def setup_model_training_tab(self):
         self.setup_title_label()
         self.setup_data_file_path_section()
@@ -136,10 +108,18 @@ class ModelTrainingTab(tk.Frame):
         self.setup_training_configuration()
         self.setup_start_training_button()
         self.setup_progress_and_logging()
-
+        # Scaler Selection Dropdown
+        tk.Label(self, text="Select Scaler:").pack()
+        self.scaler_type_var = tk.StringVar()
+        self.scaler_dropdown = ttk.Combobox(self, textvariable=self.scaler_type_var,
+                                            values=["StandardScaler", "MinMaxScaler", 
+                                                    "RobustScaler", "Normalizer", "MaxAbsScaler"])
+        self.scaler_dropdown.pack()
+    # Function to set up the title label
     def setup_title_label(self):
         tk.Label(self, text="Model Training", font=("Helvetica", 16)).pack(pady=10)
 
+    # Function to set up the data file path section
     def setup_data_file_path_section(self):
         self.data_file_label = tk.Label(self, text="Data File Path:")
         self.data_file_label.pack()
@@ -148,25 +128,28 @@ class ModelTrainingTab(tk.Frame):
         self.browse_button = ttk.Button(self, text="Browse", command=self.browse_data_file)
         self.browse_button.pack(pady=5)
 
+    # Function to set up the model type selection dropdown
     def setup_model_type_selection(self):
         tk.Label(self, text="Select Model Type:").pack()
         self.model_type_var = tk.StringVar()
-        model_type_dropdown = ttk.Combobox(self, textvariable=self.model_type_var, 
-                                           values=["linear_regression", "random_forest", 
-                                                   "neural_network", "LSTM", "ARIMA"])
+        model_type_dropdown = ttk.Combobox(self, textvariable=self.model_type_var,
+                                        values=["linear_regression", "random_forest",
+                                                "neural_network", "LSTM", "ARIMA"])
         model_type_dropdown.pack()
         model_type_dropdown.bind("<<ComboboxSelected>>", self.show_dynamic_options)
         self.dynamic_options_frame = tk.Frame(self)
         self.dynamic_options_frame.pack(pady=5)
 
+    # Function to set up training configuration options
     def setup_training_configuration(self):
         # Assuming 'setup_training_configurations' sets up various configuration options
         self.setup_training_configurations()
 
+    # Function to set up the start training button
     def setup_start_training_button(self):
         self.start_training_button = ttk.Button(self, text="Start Training", command=self.start_training)
         self.start_training_button.pack(pady=10)
-    
+
 
 #Section 2: GUI Components and Functions
         
@@ -508,9 +491,9 @@ class ModelTrainingTab(tk.Frame):
 
             # Model training logic based on the selected model type
             if model_type == "linear_regression":
-                model = train_linear_regression(X_train, y_train)
+                model = self.train_linear_regression(X_train, y_train)
             elif model_type == "random_forest":
-                model = train_random_forest(X_train, y_train)
+                model = self.train_random_forest(X_train, y_train)
             elif model_type == "neural_network":
                 model = create_neural_network(input_shape=X_train.shape[1])
                 model.fit(X_train, y_train, epochs=epochs)
@@ -541,8 +524,8 @@ class ModelTrainingTab(tk.Frame):
             self.start_training_button.config(state='normal')
 
 
-#Section 3: Data Preprocessing and Model Integration
-        
+    #Section 3: Data Preprocessing and Model Integration
+            
     def preprocess_data(self, data_file_path, scaler_type, model_type, window_size=5, epochs=None):
         try:
             # Load the dataset
@@ -616,6 +599,8 @@ class ModelTrainingTab(tk.Frame):
             # Handle and log any exceptions during preprocessing
             self.utils.log_message(f"Error in data preprocessing: {str(e)}"+ file_path, self, self.log_text, self.is_debug_mode)
             return None, None, None, None
+
+
 
     # Define specific preprocessing methods
 
@@ -707,34 +692,18 @@ class ModelTrainingTab(tk.Frame):
             # Handle and log any exceptions during preprocessing
             self.utils.log_message(f"Error in general preprocessing: {str(e)}" + file_path, self, self.log_text, self.is_debug_mode)
             return None, None
-
-    def convert_date_to_timestamp(date_str):
-        """ Convert a date string to a Unix timestamp. """
-        try:
-            date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-            return time.mktime(date.timetuple())
-        except ValueError:
-            return None
-
+        
     def scale_features(self, X, scaler_type):
         """
-        Scale the features using the specified scaler, handling date columns.
+        Scale the features using the specified scaler, handling both DataFrames and NumPy arrays.
 
         Args:
-            X (DataFrame): The feature matrix.
+            X (DataFrame or numpy array): The feature matrix.
             scaler_type (str): Type of scaler to use for feature scaling.
 
         Returns:
-            DataFrame: Scaled feature matrix.
+            DataFrame or numpy array: Scaled feature matrix.
         """
-
-        # Convert date columns to numerical values
-        for column in X.columns:
-            if pd.api.types.is_string_dtype(X[column]):
-                # Assuming the date is in 'YYYY-MM-DD' format, adapt if necessary
-                if X[column].str.match(r'\d{4}-\d{2}-\d{2}').any():
-                    X[column] = X[column].apply(self.convert_date_to_timestamp)
-
         # Define scalers
         scalers = {
             'standard': StandardScaler(),
@@ -747,13 +716,16 @@ class ModelTrainingTab(tk.Frame):
         # Select scaler
         scaler = scalers.get(scaler_type, StandardScaler())
 
-        # Apply scaling
-        X_scaled = scaler.fit_transform(X)
+        # Check if X is a DataFrame or a NumPy array
+        if isinstance(X, pd.DataFrame):
+            # If DataFrame, retain column names
+            X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
+        else:
+            # If NumPy array, just scale it
+            X_scaled = scaler.fit_transform(X)
 
-        return pd.DataFrame(X_scaled, columns=X.columns)
+        return X_scaled
 
-    # Example usage
-    # X_scaled = self.scale_features(X, 'standard')
 
 
 
@@ -1002,13 +974,14 @@ class ModelTrainingTab(tk.Frame):
 
 
     # Function to retrieve the appropriate scaler based on user selection
+    # Scaler selection method
     def get_scaler(self, scaler_type):
         scalers = {
-            'standard': StandardScaler(),
-            'minmax': MinMaxScaler(),
-            'robust': RobustScaler(),
-            'normalizer': Normalizer(),
-            'maxabs': MaxAbsScaler()
+            'StandardScaler': StandardScaler(),
+            'MinMaxScaler': MinMaxScaler(),
+            'RobustScaler': RobustScaler(),
+            'Normalizer': Normalizer(),
+            'MaxAbsScaler': MaxAbsScaler()
         }
         return scalers.get(scaler_type, StandardScaler())
 
@@ -1763,34 +1736,43 @@ class ModelTrainingTab(tk.Frame):
 
         return X_selected
 
-    def train_random_forest(self, data_file_path, scaler_type, target_column):
-        """
-        Train a Random Forest model with hyperparameter tuning and cross-validation.
+    @staticmethod
+    def convert_date_to_timestamp(date_str):
+        """ Convert a date string to a Unix timestamp. """
+        try:
+            date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            return time.mktime(date.timetuple())
+        except ValueError:
+            return None
 
-        Args:
-            data_file_path (str): Path to the data file.
-            scaler_type (str): Type of scaler to apply.
-            target_column (str): Name of the target column.
-
-        Returns:
-            RandomForestClassifier: Trained Random Forest model.
-        """
+    def train_random_forest(self, data_file_path, scaler_type, target_column='close'):
         try:
             # Load and preprocess the data
             data = pd.read_csv(data_file_path)
             if target_column not in data.columns:
                 raise ValueError(f"Target column '{target_column}' not found in the dataset.")
-            
-            X = data.drop(target_column, axis=1)  # Use the specified target column name
+
+            # Convert date columns to timestamps
+            for column in data.columns:
+                if data[column].dtype == 'object':
+                    # Assuming the date is in 'YYYY-MM-DD' format, adapt if necessary
+                    if data[column].str.match(r'\d{4}-\d{2}-\d{2}').any():
+                        data[column] = data[column].apply(self.convert_date_to_timestamp)
+
+            X = data.drop(target_column, axis=1)
             y = data[target_column]
 
-            # If you have a specific scaler function in your class, use it
-            X_scaled = self.scale_features(X, scaler_type)
+            # Impute NaN values
+            imputer = SimpleImputer(strategy='mean')
+            X_imputed = imputer.fit_transform(X)
 
-            # Split the data into training and testing sets
+            # Scale features
+            X_scaled = self.scale_features(X_imputed, scaler_type)
+
+            # Split the data
             X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2)
 
-            # Hyperparameter tuning using Grid Search
+            # Define hyperparameter grid
             param_grid = {
                 'n_estimators': [100, 200, 300],
                 'max_depth': [None, 10, 20, 30],
@@ -1798,20 +1780,17 @@ class ModelTrainingTab(tk.Frame):
                 'min_samples_leaf': [1, 2, 4],
                 'bootstrap': [True, False]
             }
-            rf = RandomForestClassifier()
+
+            # Initialize Random Forest model
+            rf = RandomForestRegressor()
+
+            # Hyperparameter tuning with Grid Search
             grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=5, n_jobs=-1)
             grid_search.fit(X_train, y_train)
             best_rf = grid_search.best_estimator_
 
-            if best_rf is None:
-                raise ValueError("Grid Search did not find the best Random Forest model.")
-            
-            # Train the model using the best hyperparameters
+            # Train the model with the best hyperparameters
             best_rf.fit(X_train, y_train)
-
-            # You can also include model evaluation, saving, etc.
-            # evaluation_results = evaluate_model(best_rf, X_test, y_test)
-            # save_model(best_rf, 'random_forest_model.joblib')
 
             return best_rf
         except FileNotFoundError:
@@ -1820,3 +1799,16 @@ class ModelTrainingTab(tk.Frame):
         except Exception as e:
             logging.error(f"An error occurred: {str(e)}")
             raise
+
+    # Example usage of train_random_forest
+    # model = train_random_forest(data_file_path, scaler_type, target_column)
+
+
+    # Method to create scaler selection dropdown
+    def setup_scaler_selection(self):
+        tk.Label(self, text="Choose Scaler:").pack()
+        self.scaler_var = tk.StringVar()
+        self.scaler_dropdown = ttk.Combobox(self, textvariable=self.scaler_var, 
+                                            values=["StandardScaler", "MinMaxScaler", 
+                                                    "RobustScaler", "Normalizer", "MaxAbsScaler"])
+        self.scaler_dropdown.pack()
