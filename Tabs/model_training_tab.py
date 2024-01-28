@@ -2,8 +2,7 @@
 
 # Section 1: Imports
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
-import configparser
+from tkinter import ttk, messagebox, filedialog
 import threading
 import logging
 import json
@@ -16,21 +15,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import (
-    mean_squared_error, r2_score, accuracy_score, classification_report, confusion_matrix
+    mean_squared_error, r2_score, classification_report, confusion_matrix
 )
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import (
     StandardScaler, MinMaxScaler, RobustScaler, Normalizer, MaxAbsScaler,
 )
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-import tensorflow as tf
-from tensorflow.keras.models import (
-    save_model as save_keras_model, Sequential as NeuralNetwork, Model
-)
-from tensorflow.keras.layers import Dense, LSTM
+from sklearn.ensemble import RandomForestRegressor
+from tensorflow.keras.models import Sequential as NeuralNetwork
 from sklearn.feature_selection import SelectKBest, f_regression
 import optuna
 import schedule
@@ -39,25 +32,22 @@ import traceback
 import os
 from Utilities.Utils import MLRobotUtils
 from model_development.model_training import (
-    train_model, load_model, create_lstm_model, train_arima_model, create_ensemble_model, create_neural_network, create_lstm_model, train_arima_model
+ create_lstm_model, create_neural_network, train_arima_model
 )
-
 import smtplib  # For sending email notifications
 from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
 import queue
-from sklearn.preprocessing import OrdinalEncoder
 
 # Section 1.1: Additional Imports for RandomForestClassifier
 from xgboost import XGBRegressor
-import pandas as pd
-import time
+
+
 import datetime
 from sklearn.impute import SimpleImputer
-from tkinter import messagebox
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.ensemble import RandomForestRegressor
+
 # Section 1.2: Model training tab class
+
 
 class ModelTrainingTab(tk.Frame):
     def __init__(self, parent, config, scaler_options):
@@ -69,7 +59,10 @@ class ModelTrainingTab(tk.Frame):
         self.scaler_options = scaler_options  # Data scaling options
         self.trained_models = []  # List for trained models
         self.trained_model = None  # Current trained model reference
-        self.utils = MLRobotUtils(is_debug_mode=config.getboolean('Settings', 'DebugMode', fallback=False))
+        self.utils = MLRobotUtils(
+            is_debug_mode=config.getboolean('Settings', 'DebugMode', fallback=False)
+        )
+        
         self.setup_model_training_tab()  # Initialize GUI components
         self.scaler_type_var = tk.StringVar()
         self.n_estimators_entry = tk.Entry(self)  # Entry for the number of estimators
@@ -86,7 +79,22 @@ class ModelTrainingTab(tk.Frame):
         self.error_label = tk.Label(self, text="", fg="red")  # Label for error messages
         self.error_label.pack()
         self.setup_debug_mode_toggle()
+        self.setup_dropout_rate_slider()  
 
+    def setup_dropout_rate_slider(self):
+        tk.Label(self, text="Dropout Rate:").pack()
+        self.dropout_rate_var = tk.DoubleVar()
+        self.dropout_rate_slider = ttk.Scale(
+            self,
+            variable=self.dropout_rate_var,
+            from_=0.0,
+            to=1.0,
+            orient="horizontal"
+        )
+        self.dropout_rate_slider.pack()
+        
+        self.dropout_rate_slider.pack()
+                
     # Function to set up the debug mode toggle button
     def setup_debug_mode_toggle(self):
         self.debug_button = tk.Button(self, text="Enable Debug Mode", command=self.toggle_debug_mode)
@@ -115,6 +123,7 @@ class ModelTrainingTab(tk.Frame):
                                             values=["StandardScaler", "MinMaxScaler", 
                                                     "RobustScaler", "Normalizer", "MaxAbsScaler"])
         self.scaler_dropdown.pack()
+
     # Function to set up the title label
     def setup_title_label(self):
         tk.Label(self, text="Model Training", font=("Helvetica", 16)).pack(pady=10)
@@ -151,9 +160,10 @@ class ModelTrainingTab(tk.Frame):
         self.start_training_button.pack(pady=10)
 
 
-#Section 2: GUI Components and Functions
+# Section 2: GUI Components and Functions
         
     # Function to show additional input fields based on the selected model type
+        
     def show_epochs_input(self, event):
         selected_model_type = self.model_type_var.get()
         
@@ -161,7 +171,6 @@ class ModelTrainingTab(tk.Frame):
             if not hasattr(self, 'epochs_label'):
                 self.epochs_label = tk.Label(self, text="Epochs:")
                 self.epochs_entry = tk.Entry(self)
-
 
             self.epochs_label.pack(in_=self)
             self.epochs_entry.pack(in_=self)
@@ -184,7 +193,6 @@ class ModelTrainingTab(tk.Frame):
     # Start asyncio loop in a separate thread
     asyncio_thread = threading.Thread(target=start_asyncio_loop, daemon=True)
     asyncio_thread.start()
-
 
     def start_training(self):
         if not self.validate_inputs():
@@ -210,29 +218,100 @@ class ModelTrainingTab(tk.Frame):
 
         if model_type == "neural_network":
             def objective(trial):
-                # Define hyperparameter search space
-                lstm_layers = [trial.suggest_int('lstm_layer_1', 32, 128), trial.suggest_int('lstm_layer_2', 16, 64)]
-                dropout_rates = [trial.suggest_uniform('dropout_1', 0.2, 0.5), trial.suggest_uniform('dropout_2', 0.2, 0.5)]
+                # Define hyperparameter search space for LSTM layers and dropout rates
+                lstm_layers = [trial.suggest_int('lstm_layer_1', 32, 128),
+                            trial.suggest_int('lstm_layer_2', 16, 64)]
+                dropout_rates = [trial.suggest_uniform('dropout_1', 0.2, 0.5),
+                                trial.suggest_uniform('dropout_2', 0.2, 0.5)]
 
-                # Call create_neural_network with the suggested hyperparameters
-                model = create_neural_network(input_shape, lstm_layers, dropout_rates)
+                # Define additional training parameters
+                batch_size = trial.suggest_categorical('batch_size', [32, 64, 128])
+                epochs = trial.suggest_int('epochs', 10, 50)
 
-                # Evaluate the model's performance and return a metric to optimize
+                # Create the LSTM model with the suggested hyperparameters
+                model = create_neural_network(input_shape, lstm_layers=lstm_layers, dropout_rate=dropout_rate)
+
+                # Train the model on your training data
+                history = model.fit(train_data, train_labels, 
+                                    validation_data=(val_data, val_labels), 
+                                    epochs=epochs, 
+                                    batch_size=batch_size)
+
+                # Calculate and return the validation loss
+                validation_loss = history.history['val_loss'][-1]
                 return validation_loss
 
             study = optuna.create_study(direction='minimize')
             study.optimize(objective, n_trials=100)
             best_params = study.best_params
 
-            # Call create_neural_network with the best hyperparameters
-            model = create_neural_network(input_shape, best_params['lstm_layers'], best_params['dropout_rates'])
+            # Call create_lstm_model with the best hyperparameters
+            best_lstm_layers = [best_params['lstm_layer_1'], best_params['lstm_layer_2']]
+            best_dropout_rates = [best_params['dropout_1'], best_params['dropout_2']]
+            best_batch_size = best_params['batch_size']
+            best_epochs = best_params['epochs']
+
+            final_model = create_neural_network(input_shape, lstm_layers=best_lstm_layers, dropout_rates=best_dropout_rates)
+
+            # Optionally, you can retrain the final model with the best parameters
+            # final_history = final_model.fit(train_data, train_labels, 
+            #                                 validation_data=(val_data, val_labels), 
+            #                                 epochs=best_epochs, 
+            #                                 batch_size=best_batch_size)
 
         elif model_type == "LSTM":
+            # Step 1: Initial Setup for LSTM Model
             lstm_layers = [64, 32]  # Example values, customize as needed
             dropout_rates = [0.2, 0.3]  # Example values, customize as needed
-
-            # Call create_lstm_model with the lists
             model = create_lstm_model(input_shape, lstm_layers, dropout_rates)
+
+            # Step 2: Objective Function for Hyperparameter Tuning
+            def objective(trial):
+                # Define hyperparameter search space for LSTM layers and dropout rates
+                lstm_layers = [
+                    trial.suggest_int('lstm_layer_1', 32, 128),
+                    trial.suggest_int('lstm_layer_2', 16, 64)
+                ]
+                dropout_rates = [
+                    trial.suggest_uniform('dropout_1', 0.2, 0.5),
+                    trial.suggest_uniform('dropout_2', 0.2, 0.5)
+                ]
+
+                # Define additional training parameters
+                batch_size = trial.suggest_categorical('batch_size', [32, 64, 128])
+                epochs = trial.suggest_int('epochs', 10, 50)
+
+                # Create the LSTM model with the suggested hyperparameters
+                model = create_lstm_model(input_shape, lstm_layers, dropout_rates)
+
+                # Train the model on your training data
+                history = model.fit(train_data, train_labels,
+                                    validation_data=(val_data, val_labels),
+                                    epochs=epochs, 
+                                    batch_size=batch_size)
+
+                # Calculate and return the validation loss
+                validation_loss = history.history['val_loss'][-1]
+                return validation_loss
+
+            # Step 3: Hyperparameter Optimization
+            study = optuna.create_study(direction='minimize')
+            study.optimize(objective, n_trials=100)
+            best_params = study.best_params
+
+            # Step 4: Final Model Creation and Optional Retraining
+            best_lstm_layers = [best_params['lstm_layer_1'], best_params['lstm_layer_2']]
+            best_dropout_rates = [best_params['dropout_1'], best_params['dropout_2']]
+            best_batch_size = best_params['batch_size']
+            best_epochs = best_params['epochs']
+
+            final_model = create_lstm_model(input_shape, lstm_layers=best_lstm_layers, dropout_rates=best_dropout_rates)
+
+            # Uncomment the following lines if you wish to retrain the final model
+            # final_history = final_model.fit(train_data, train_labels,
+            #                                 validation_data=(val_data, val_labels),
+            #                                 epochs=best_epochs,
+            #                                 batch_size=best_batch_size)
 
         elif model_type == "ARIMA":
             model = train_arima_model(data_file_path, scaler_type)

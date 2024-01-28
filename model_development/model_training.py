@@ -58,19 +58,18 @@ def train_model(X_train, y_train, model_type='linear_regression'):
 
 # Function for creating a customizable neural network model
 
-
-def create_neural_network(input_shape, layers=[128, 64], output_units=1, output_activation=None,
-                          activation='relu', dropout_rate=0.0, optimizer='adam', loss='mean_squared_error', metrics=None):
+def create_neural_network(input_shape, layers=[128, 64], lstm_layers=None, output_units=1, output_activation=None,
+                          activation='relu', optimizer='adam', loss='mean_squared_error', metrics=None):
     """
     Create a customizable neural network for regression tasks with extended flexibility.
 
     Args:
         input_shape (tuple): The shape of the input data, excluding the batch size.
         layers (list): List of integers, the size of each dense layer.
+        lstm_layers (list): List of integers, the size of each LSTM layer (if used).
         output_units (int): Number of units in the output layer.
         output_activation (str): Activation function for the output layer.
         activation (str): Activation function for the hidden layers.
-        dropout_rate (float): Dropout rate, between 0 and 1.
         optimizer (str): Optimizer to use.
         loss (str): Loss function.
         metrics (list): List of metrics to be evaluated by the model during training and testing.
@@ -81,24 +80,36 @@ def create_neural_network(input_shape, layers=[128, 64], output_units=1, output_
     model = tf.keras.Sequential()
     model.add(tf.keras.layers.InputLayer(input_shape=input_shape))  # Use the tuple input_shape directly
 
+    if lstm_layers:
+        for lstm_units in lstm_layers:
+            model.add(tf.keras.layers.LSTM(lstm_units, return_sequences=True))
+            model.add(tf.keras.layers.BatchNormalization())
+
     for units in layers:
         model.add(tf.keras.layers.Dense(units, activation=activation))
-        if dropout_rate > 0.0:
-            model.add(tf.keras.layers.Dropout(dropout_rate))
         model.add(tf.keras.layers.BatchNormalization())
 
     model.add(tf.keras.layers.Dense(output_units, activation=output_activation))
+
+    # Use the selected dropout rate from the slider
+    dropout_rate = self.dropout_rate_var.get()
+    if dropout_rate > 0.0:
+        model.add(tf.keras.layers.Dropout(dropout_rate))
+
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     return model
 
 
+
+
 # Function for creating an LSTM model (Placeholder - Implement as needed)
+
 def create_lstm_model(input_shape, lstm_layers=[50, 50], dropout_rates=[0.2, 0.2], optimizer='adam', loss='mean_squared_error'):
     """
     Create an advanced LSTM model with customizable layers and dropout rates.
 
     Args:
-        input_shape (tuple): The shape of the input data.
+        input_shape (tuple): The shape of the input data, expected to be (timesteps, features).
         lstm_layers (list): List of LSTM units for each layer.
         dropout_rates (list): List of dropout rates corresponding to each LSTM layer.
         optimizer (str or keras.optimizers): Optimizer to use.
@@ -107,18 +118,30 @@ def create_lstm_model(input_shape, lstm_layers=[50, 50], dropout_rates=[0.2, 0.2
     Returns:
         model: A compiled LSTM model.
     """
+    # Validate input_shape
+    if not isinstance(input_shape, tuple) or len(input_shape) != 2:
+        raise ValueError("input_shape must be a tuple of length 2 (timesteps, features)")
+
     model = tf.keras.Sequential()
 
+    # Adding LSTM layers with specified units and dropout rates
     for i, (units, dropout_rate) in enumerate(zip(lstm_layers, dropout_rates)):
         if i == 0:
+            # First layer needs to specify the input shape
             model.add(tf.keras.layers.LSTM(units, input_shape=input_shape, return_sequences=(i < len(lstm_layers) - 1)))
         else:
+            # Subsequent layers will automatically infer shape
             model.add(tf.keras.layers.LSTM(units, return_sequences=(i < len(lstm_layers) - 1)))
         model.add(tf.keras.layers.Dropout(dropout_rate))
 
-    model.add(tf.keras.layers.Dense(1))  # Output layer - adjust based on your needs
+    # Output layer - adjust units and activation based on your specific problem
+    model.add(tf.keras.layers.Dense(1))  # Assuming a regression problem; change for classification
+
+    # Compile the model
     model.compile(optimizer=optimizer, loss=loss)
     return model
+
+
 
 
 # Function to train an ARIMA model (Placeholder - Implement as needed)
