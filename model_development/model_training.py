@@ -1,33 +1,47 @@
 # model_training.py
 
 # Section 1: Imports and Setup
-import logging
-import joblib
-import numpy as np
-import pandas as pd
+import logging  # Import the logging module for logging messages
+import joblib  # Import joblib for saving and loading scikit-learn models
+import numpy as np  # Import NumPy for numerical operations
+import pandas as pd  # Import pandas for data manipulation
+import tensorflow as tf  # Import TensorFlow for deep learning
+from tensorflow import keras  # Import Keras from TensorFlow for building neural networks
+import torch  # Import PyTorch if needed for deep learning with PyTorch
+import sklearn.base  # Import scikit-learn base classes
+from sklearn.linear_model import LinearRegression  # Import LinearRegression from scikit-learn
+from sklearn.ensemble import RandomForestRegressor  # Import RandomForestRegressor from scikit-learn
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV  # Import GridSearchCV and RandomizedSearchCV for hyperparameter tuning
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint  # Import Keras callbacks for training
+from tensorflow.keras.models import save_model as save_keras_model  # Import Keras save_model function
+from tensorflow.keras.models import load_model as load_keras_model  # Import Keras load_model function
+from kerastuner.engine.hypermodel import HyperModel  # Import HyperModel from Keras Tuner for hyperparameter tuning
+from kerastuner.tuners import BayesianOptimization  # Import BayesianOptimization from Keras Tuner for hyperparameter tuning
+from statsmodels.tsa.arima.model import ARIMA  # Import ARIMA from statsmodels for time series modeling
+import statsmodels  # Import statsmodels if needed for statistical analysis
+import xgboost as xgb  # Import XGBoost for gradient boosting
+from sklearn.metrics import mean_squared_error, r2_score
 import tensorflow as tf
-from tensorflow import keras
-import torch
-import sklearn.base
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.keras.models import save_model as save_keras_model
-from tensorflow.keras.models import load_model as load_keras_model
-from kerastuner.engine.hypermodel import HyperModel
-from kerastuner.tuners import BayesianOptimization
-from statsmodels.tsa.arima.model import ARIMA
-import statsmodels
-import joblib  # For scikit-learn models
-import tensorflow as tf  # For TensorFlow/Keras models
-import xgboost as xgb  # For XGBoost models
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dropout, Dense, InputLayer, Flatten, BatchNormalization, Reshape
+import matplotlib.pyplot as plt
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import InputLayer, Reshape, LSTM, Dense, Dropout, BatchNormalization, Flatten
+import optuna
+import numpy as np
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, LSTM, Flatten, BatchNormalization, InputLayer
+from tensorflow.keras.optimizers import Adam, RMSprop
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 
 
 # Section 2: Model Training Functions - Part 1
 
-def train_model(X_train, y_train, model_type='linear_regression'):
+def train_model(X_train, y_train, model_type='linear_regression', hyperparameter_tuning=False, param_grid=None, n_iter=None):
     """
     Train a machine learning model based on the specified type.
 
@@ -35,137 +49,218 @@ def train_model(X_train, y_train, model_type='linear_regression'):
         X_train (DataFrame): Training features.
         y_train (Series): Training target.
         model_type (str): Type of model to train.
+        hyperparameter_tuning (bool): Flag indicating whether to perform hyperparameter tuning.
+        param_grid (dict or None): Hyperparameter grid for GridSearchCV or RandomizedSearchCV.
+        n_iter (int or None): Number of iterations for RandomizedSearchCV.
 
     Returns:
         model: Trained model object.
     """
-    if model_type == 'linear_regression':
-        model = LinearRegression()
-    elif model_type == 'random_forest':
-        model = RandomForestRegressor()
-    elif model_type == 'neural_network':
-        model = create_neural_network(X_train.shape[1])
-    elif model_type == 'LSTM':
-        model = create_lstm_model(X_train.shape[1:])
-    elif model_type == 'ARIMA':
-        model = train_arima_model(X_train, y_train)
+    logger.info(f"Training {model_type} model...")
+    
+    if hyperparameter_tuning:
+        if model_type == 'linear_regression':
+            model = GridSearchCV(LinearRegression(), param_grid=param_grid, scoring='neg_mean_squared_error', cv=5)
+        elif model_type == 'random_forest':
+            model = RandomizedSearchCV(RandomForestRegressor(), param_distributions=param_grid, n_iter=n_iter, scoring='neg_mean_squared_error', cv=5)
+        else:
+            logger.error(f"Unsupported model type for hyperparameter tuning: {model_type}")
+            raise ValueError(f"Unsupported model type for hyperparameter tuning: {model_type}")
     else:
-        logging.error(f"Unsupported model type: {model_type}")
-        raise ValueError(f"Unsupported model type: {model_type}")
+        if model_type == 'linear_regression':
+            model = LinearRegression()
+        elif model_type == 'random_forest':
+            model = RandomForestRegressor()
+        elif model_type == 'neural_network':
+            model = create_neural_network(X_train.shape[1])
+        elif model_type == 'LSTM':
+            model = create_lstm_model(X_train.shape[1:])
+        elif model_type == 'ARIMA':
+            model = train_arima_model(X_train, y_train)
+        else:
+            logger.error(f"Unsupported model type: {model_type}")
+            raise ValueError(f"Unsupported model type: {model_type}")
 
-    model.fit(X_train, y_train)
-    return model
+    if hyperparameter_tuning:
+        model.fit(X_train, y_train)
+        best_model = model.best_estimator_
+    else:
+        model.fit(X_train, y_train)
+        best_model = model
+
+    logger.info(f"{model_type} model trained successfully.")
+    return best_model
+
 
 # Function for creating a customizable neural network model
 
-def create_neural_network(input_shape, layers=[128, 64], lstm_layers=None, output_units=1, output_activation=None,
-                          activation='relu', optimizer='adam', loss='mean_squared_error', metrics=None):
-    """
-    Create a customizable neural network for regression tasks with extended flexibility.
 
-    Args:
-        input_shape (tuple): The shape of the input data, excluding the batch size.
-        layers (list): List of integers, the size of each dense layer.
-        lstm_layers (list): List of integers, the size of each LSTM layer (if used).
-        output_units (int): Number of units in the output layer.
-        output_activation (str): Activation function for the output layer.
-        activation (str): Activation function for the hidden layers.
-        optimizer (str): Optimizer to use.
-        loss (str): Loss function.
-        metrics (list): List of metrics to be evaluated by the model during training and testing.
 
-    Returns:
-        tf.keras.Model: A compiled neural network model.
-    """
-    model = tf.keras.Sequential()
-    model.add(tf.keras.layers.InputLayer(input_shape=input_shape))  # Use the tuple input_shape directly
-
+def create_neural_network(input_shape, timesteps=None, layers=[128, 64], lstm_layers=None, dropout_rates=None, output_units=1, output_activation='sigmoid',
+                          activation='relu', optimizer='adam', loss='binary_crossentropy', metrics=['accuracy']):
+    print("Creating neural network with the following configuration:")
+    print(f"Input shape: {input_shape}, Timesteps: {timesteps}, Layers: {layers}, LSTM Layers: {lstm_layers}, Dropout Rates: {dropout_rates}")
+    model = Sequential()
+    
+    if timesteps:
+        input_shape = (timesteps, input_shape[1])
+        model.add(InputLayer(input_shape=input_shape))
+    else:
+        model.add(InputLayer(input_shape=input_shape))
+    
     if lstm_layers:
-        for lstm_units in lstm_layers:
-            model.add(tf.keras.layers.LSTM(lstm_units, return_sequences=True))
-            model.add(tf.keras.layers.BatchNormalization())
+        for i, lstm_units in enumerate(lstm_layers):
+            model.add(LSTM(lstm_units, return_sequences=(i < len(lstm_layers) - 1)))
+            if dropout_rates and i < len(dropout_rates):
+                model.add(Dropout(dropout_rates[i]))
+            model.add(BatchNormalization())
 
-    for units in layers:
-        model.add(tf.keras.layers.Dense(units, activation=activation))
-        model.add(tf.keras.layers.BatchNormalization())
+    for i, units in enumerate(layers):
+        if i == 0 and lstm_layers:
+            model.add(Flatten())
+        model.add(Dense(units, activation=activation))
+        if dropout_rates and not lstm_layers or i >= len(lstm_layers):
+            model.add(Dropout(dropout_rates[i]))
+        model.add(BatchNormalization())
 
-    model.add(tf.keras.layers.Dense(output_units, activation=output_activation))
-
-    # Use the selected dropout rate from the slider
-    dropout_rate = self.dropout_rate_var.get()
-    if dropout_rate > 0.0:
-        model.add(tf.keras.layers.Dropout(dropout_rate))
-
+    model.add(Dense(output_units, activation=output_activation))
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
+    print("Model created and compiled.")
     return model
 
+def objective(trial):
+    print("Starting a trial.")
+    # Dynamic model configuration
+    num_layers = trial.suggest_int('num_layers', 1, 3)
+    dropout_rate = trial.suggest_uniform('dropout_rate', 0.1, 0.5)
+    units_per_layer = trial.suggest_categorical('units', [16, 32, 64, 128])
+    optimizer = trial.suggest_categorical('optimizer', ['adam', 'rmsprop'])
+    batch_size = trial.suggest_categorical('batch_size', [16, 32, 64])
+    epochs = trial.suggest_int('epochs', 10, 100)
+    
+    use_lstm = trial.suggest_categorical('use_lstm', [True, False])
+    lstm_layers = [trial.suggest_int('lstm_units', 32, 128)] if use_lstm else None
+
+    best_dropout = [dropout_rate] * (num_layers + (1 if use_lstm else 0))
+
+    final_model = create_neural_network(input_shape=(sequence_length, features.shape[1]), 
+                                        timesteps=sequence_length if use_lstm else None,
+                                        layers=[units_per_layer] * num_layers, 
+                                        lstm_layers=lstm_layers,
+                                        dropout_rates=best_dropout,
+                                        optimizer=optimizer)
+
+    print(f"Training model with {epochs} epochs and batch size {batch_size}.")
+    history = final_model.fit(X_train, y_train, validation_split=0.2, epochs=epochs, batch_size=batch_size, verbose=1)
+
+    validation_loss = np.min(history.history['val_loss'])
+    print(f"Trial complete. Validation loss: {validation_loss}")
+    return validation_loss
+
+def optimize_model():
+    print("Optimizing model with Optuna.")
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=10)  # Adjust n_trials as needed
+
+    best_params = study.best_params
+    print(f"Best parameters found: {best_params}")
+
+    use_lstm = 'use_lstm' in best_params and best_params['use_lstm']
+    lstm_layers = [best_params['lstm_units']] if use_lstm else None
+    dropout_rates = [best_params['dropout_rate']] * (best_params['num_layers'] + (1 if use_lstm else 0))
+
+    final_model = create_neural_network(input_shape=(sequence_length, features.shape[1]), 
+                                        timesteps=sequence_length if use_lstm else None,
+                                        layers=[best_params['units']] * best_params['num_layers'], 
+                                        lstm_layers=lstm_layers,
+                                        dropout_rates=dropout_rates,
+                                        optimizer=best_params['optimizer'])
+
+    print("Final model training with optimized parameters.")
+    final_history = final_model.fit(X_train, y_train, validation_split=0.2, 
+                                    epochs=best_params['epochs'], 
+                                    batch_size=best_params['batch_size'], 
+                                    verbose=1)
+
+    # Assuming you have a function to evaluate your model's performance:
+    evaluate_model(final_model, X_test, y_test)
+    print("Model optimization and training complete.")
 
 
+# Function for creating an LSTM model
 
-# Function for creating an LSTM model (Placeholder - Implement as needed)
+def create_lstm_model(input_shape, lstm_layers, dropout_rates, timesteps=1):
+    model = tf.keras.models.Sequential()
+    model.add(tf.keras.layers.InputLayer(input_shape=input_shape))
 
-def create_lstm_model(input_shape, lstm_layers=[50, 50], dropout_rates=[0.2, 0.2], optimizer='adam', loss='mean_squared_error'):
-    """
-    Create an advanced LSTM model with customizable layers and dropout rates.
-
-    Args:
-        input_shape (tuple): The shape of the input data, expected to be (timesteps, features).
-        lstm_layers (list): List of LSTM units for each layer.
-        dropout_rates (list): List of dropout rates corresponding to each LSTM layer.
-        optimizer (str or keras.optimizers): Optimizer to use.
-        loss (str or callable): Loss function to use.
-
-    Returns:
-        model: A compiled LSTM model.
-    """
-    # Validate input_shape
-    if not isinstance(input_shape, tuple) or len(input_shape) != 2:
-        raise ValueError("input_shape must be a tuple of length 2 (timesteps, features)")
-
-    model = tf.keras.Sequential()
-
-    # Adding LSTM layers with specified units and dropout rates
-    for i, (units, dropout_rate) in enumerate(zip(lstm_layers, dropout_rates)):
-        if i == 0:
-            # First layer needs to specify the input shape
-            model.add(tf.keras.layers.LSTM(units, input_shape=input_shape, return_sequences=(i < len(lstm_layers) - 1)))
-        else:
-            # Subsequent layers will automatically infer shape
-            model.add(tf.keras.layers.LSTM(units, return_sequences=(i < len(lstm_layers) - 1)))
-        model.add(tf.keras.layers.Dropout(dropout_rate))
-
-    # Output layer - adjust units and activation based on your specific problem
-    model.add(tf.keras.layers.Dense(1))  # Assuming a regression problem; change for classification
-
-    # Compile the model
-    model.compile(optimizer=optimizer, loss=loss)
+    # If your data is not already in the shape (batch_size, timesteps, features),
+    # you need to reshape it. Here, we're assuming each feature should be treated
+    # as a separate timestep. This is a simplistic approach and may need adjustment.
+    if len(input_shape) == 1:
+        # Reshape the input to have a "time" dimension of 1
+        model.add(tf.keras.layers.Reshape((timesteps, input_shape[0] // timesteps)))
+    
+    for i, (lstm_units, dropout_rate) in enumerate(zip(lstm_layers, dropout_rates)):
+        model.add(tf.keras.layers.LSTM(units=lstm_units, return_sequences=(i < len(lstm_layers) - 1)))
+        if dropout_rate > 0:
+            model.add(tf.keras.layers.Dropout(dropout_rate))
+    
+    model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    
     return model
 
+def load_data(filepath):
+    try:
+        data = pd.read_csv(filepath)
+        # Validate that required columns exist
+        if 'date' not in data.columns or 'close' not in data.columns:
+            raise ValueError("Missing required columns 'date' or 'close'.")
+        return data
+    except FileNotFoundError:
+        print(f"File not found: {filepath}")
+        raise
+    except ValueError as e:
+        print(f"Data validation error: {e}")
+        raise
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        raise
 
+def train_arima_model(filepath, order=(5,1,0)):
+    print(f"Attempting to load data from: {filepath}, Type: {type(filepath)}")
+    try:
+        print(f"Received filepath: {filepath}, Type: {type(filepath)}")  # Corrected syntax here
+        data = load_data(filepath)  # Load and validate data
+        train_size = int(len(data['close']) * 0.8)
+        train, test = data['close'][0:train_size], data['close'][train_size:]
+        
+        history = list(train)
+        predictions = []
+        
+        for t in range(len(test)):
+            model = ARIMA(history, order=order)
+            model_fit = model.fit()
+            output = model_fit.forecast()
+            yhat = output[0]
+            predictions.append(yhat)
+            obs = test.iloc[t]
+            history.append(obs)
+        
+        # Evaluate forecasts
+        error = mean_squared_error(test, predictions)
+        print(f'Test MSE: {error}')
+        
+        # Plot forecasts against actual outcomes
+        plt.figure(figsize=(12, 6))
+        plt.plot(test.values, label='Actual')
+        plt.plot(predictions, color='red', label='Predicted')
+        plt.legend()
+        plt.show()
+    except Exception as e:
+        print(f"Error in training ARIMA model: {e}")
 
-
-# Function to train an ARIMA model (Placeholder - Implement as needed)
-def train_arima_model(X_train, order=(1, 1, 1), seasonal_order=(0, 0, 0, 0), trend=None):
-    """
-    Train an enhanced ARIMA model, including support for seasonal components.
-
-    Args:
-        X_train (array-like): Training features.
-        order (tuple): The (p, d, q) order of the ARIMA model.
-        seasonal_order (tuple): The (P, D, Q, S) seasonal order of the ARIMA model.
-        trend (str or None): The trend parameter.
-
-    Returns:
-        model_fit: A fitted ARIMA model.
-    """
-    model = ARIMA(X_train, order=order, seasonal_order=seasonal_order, trend=trend)
-    model_fit = model.fit()
-    return model_fit
-
-
-# Function for creating an ensemble model (Placeholder - Implement as needed)
 def create_ensemble_model(models, weights=None):
-
     """
     Create a sophisticated ensemble model, optionally using weights for averaging.
 
@@ -188,7 +283,6 @@ def create_ensemble_model(models, weights=None):
     return SophisticatedEnsembleModel(models, weights)
 
 
-
 # Section 3: Model Evaluation
 
 def evaluate_model(model, X_test, y_test):
@@ -203,10 +297,13 @@ def evaluate_model(model, X_test, y_test):
     Returns:
         dict: A dictionary containing evaluation metrics.
     """
+    logger.info("Evaluating the model...")
     predictions = model.predict(X_test)
     mse = mean_squared_error(y_test, predictions)
     r2 = r2_score(y_test, predictions)
-    return {'mean_squared_error': mse, 'r2_score': r2}
+    evaluation_metrics = {'mean_squared_error': mse, 'r2_score': r2}
+    logger.info(f"Model evaluation complete. Metrics: {evaluation_metrics}")
+    return evaluation_metrics
 
 # Section 4: Model Saving
 
@@ -221,6 +318,7 @@ def save_model(model, filename):
     Returns:
         None
     """
+    logger.info(f"Saving the model to {filename}...")
     if isinstance(model, sklearn.base.BaseEstimator):
         joblib.dump(model, filename + '.joblib')
     elif isinstance(model, keras.Model):
@@ -228,9 +326,10 @@ def save_model(model, filename):
     elif isinstance(model, torch.nn.Module):
         torch.save(model.state_dict(), filename + '.pth')
     else:
+        logger.error("Model type not supported")
         raise ValueError("Model type not supported")
+    logger.info(f"Model saved to {filename}")
 
-    logging.info(f"Model saved to {filename}")
 
 # Section 5: Hyperparameter Tuning
 
@@ -290,42 +389,35 @@ def perform_hyperparameter_tuning(X_train, y_train, model_type='neural_network',
     if model_type == 'neural_network':
         assert input_shape is not None, "Input shape must be provided for neural network models."
 
-        hypermodel = CustomHyperModel(input_shape=input_shape)
+        # Define hyperparameter grid for neural network
+        param_grid_neural_network = {
+            'units': [64, 128, 256],
+            'num_layers': [1, 2, 3],
+            'dropout': [True, False],
+            'dropout_rate': [0.2, 0.3, 0.4],
+            'learning_rate': [1e-4, 1e-3, 1e-2]
+        }
 
-        tuner = BayesianOptimization(
-            hypermodel,
-            objective='val_loss',
-            max_trials=max_trials,
-            directory='my_neural_network_tuner_dir',
-            project_name='neural_network_tuning'
-        )
-
-        tuner.search(X_train, y_train, epochs=epochs, validation_split=0.2)
-        best_model = tuner.get_best_models(num_models=1)[0]
+        best_model = train_model(X_train, y_train, model_type='neural_network', hyperparameter_tuning=True,
+                                 param_grid=param_grid_neural_network, n_iter=max_trials)
 
     elif model_type == 'random_forest':
-        # Define parameter space for Random Forest
-        param_distributions = {
-            # Add random forest hyperparameters here
+        # Define hyperparameter grid for random forest
+        param_grid_random_forest = {
+            'n_estimators': [50, 100, 200],
+            'max_depth': [None, 10, 20, 30],
+            'min_samples_split': [2, 5, 10],
+            'min_samples_leaf': [1, 2, 4]
         }
-        
-        model = RandomForestRegressor()
-        tuner = RandomizedSearchCV(
-            model,
-            param_distributions=param_distributions,
-            n_iter=max_trials,
-            cv=5,
-            n_jobs=-1,
-            verbose=1
-        )
 
-        tuner.fit(X_train, y_train)
-        best_model = tuner.best_estimator_
+        best_model = train_model(X_train, y_train, model_type='random_forest', hyperparameter_tuning=True,
+                                 param_grid=param_grid_random_forest, n_iter=max_trials)
 
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
     return best_model
+
 
 def load_model(file_path):
     """
@@ -337,65 +429,141 @@ def load_model(file_path):
     Returns:
         model: The loaded model.
     """
-    # Determine the model type based on the file extension
+    logger.info(f"Loading model from {file_path}...")
     if file_path.endswith('.joblib'):
         # Load a scikit-learn model
-        return joblib.load(file_path)
+        loaded_model = joblib.load(file_path)
     elif file_path.endswith('.h5'):
         # Load a Keras model
-        return tf.keras.models.load_model(file_path)
-    elif file_path.endswith('.json'):
-        # Load a XGBoost model saved as JSON
-        model = xgb.XGBModel()
-        model.load_model(file_path)
-        return model
+        loaded_model = tf.keras.models.load_model(file_path)
+    elif file_path.endswith('.pth'):
+        # Load a PyTorch model
+        # Assuming you have a function to create and define the PyTorch model
+        loaded_model = create_and_define_pytorch_model()
+        loaded_model.load_state_dict(torch.load(file_path))
+        loaded_model.eval()
     else:
+        logger.error("Unsupported model file format or extension")
         raise ValueError("Unsupported model file format or extension")
+    logger.info("Model loaded successfully.")
+    return loaded_model
 
 
 
-def train_hist_gradient_boosting(self, data_file_path, scaler_type, target_column='close'):
+def train_hist_gradient_boosting(data_file_path, scaler_type, target_column='close'):
+    """
+    Train a historical Gradient Boosting model.
+
+    Args:
+        data_file_path (str): Path to the CSV file containing the historical data.
+        scaler_type (str): Type of scaler to use for data preprocessing ('standard' or other supported scalers).
+        target_column (str, optional): The name of the target column in the dataset (default is 'close').
+
+    Returns:
+        sklearn.ensemble.GradientBoostingRegressor: The trained Gradient Boosting regressor model.
+    """
     try:
-        # Load the data from the provided file path (modify this as needed)
+        logger.info("Loading historical data...")
+        # Load the data from the provided file path
         df = pd.read_csv(data_file_path)
 
-        # Handle missing values (you can choose forward fill or backward fill)
-        df.fillna(method='ffill', inplace=True)  # Use forward fill for missing values
+        # Handle missing values by forward fill (you can choose other methods as needed)
+        df.fillna(method='ffill', inplace=True)
 
+        logger.info("Extracting features and target...")
         # Extract features and target
         X = df.drop(target_column, axis=1)  # Assuming the target column is labeled 'close'
         y = df[target_column]
 
-        # Continue with the rest of your code (scaling, splitting, and training)
-        # Perform data scaling if needed (you can choose StandardScaler or other scalers)
+        logger.info("Performing data scaling...")
+        # Perform data scaling if needed (e.g., using StandardScaler or other scalers)
         if scaler_type == "standard":
             scaler = StandardScaler()
         else:
+            logger.error(f"Unsupported scaler type: {scaler_type}")
             raise ValueError(f"Unsupported scaler type: {scaler_type}")
 
         X_scaled = scaler.fit_transform(X)
 
+        logger.info("Splitting the dataset into training and testing sets...")
         # Split the dataset into training and testing sets
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
+        logger.info("Creating an instance of the GradientBoostingRegressor...")
         # Create an instance of the GradientBoostingRegressor
         gbr = GradientBoostingRegressor()
 
+        logger.info("Training the model...")
         # Train the model
         gbr.fit(X_train, y_train)
 
+        logger.info("Evaluating the model...")
         # Evaluate the model (you can add evaluation metrics here)
         train_score = gbr.score(X_train, y_train)
         test_score = gbr.score(X_test, y_test)
 
-        # You can print or log the training and testing scores
-        print(f"Training Score: {train_score}")
-        print(f"Testing Score: {test_score}")
+        logger.info(f"Training Score: {train_score}")
+        logger.info(f"Testing Score: {test_score}")
 
+        logger.info("Training complete.")
         # Return the trained model
         return gbr
 
     except Exception as e:
-        messagebox.showerror("Error", f"An error occurred: {str(e)}")
+        logger.error(f"An error occurred: {str(e)}")
+        raise  # Re-raise the exception to handle it elsewhere
+
 # Example usage
-# model = load_model('path_to_your_model_file')
+# model = train_hist_gradient_boosting('path_to_your_data.csv', 'standard')
+
+# Section ???: Final Remarks and Cleanup
+
+if __name__ == "__main__":
+    # Example usage of your script
+
+    # Configure logging
+    logging.basicConfig(filename='model_training.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    # Specify the file path to your historical data CSV file
+    data_file_path = 'path_to_your_data.csv'
+
+    # Specify the type of scaler to use ('standard' or other supported scalers)
+    scaler_type = 'standard'
+
+    try:
+        # Train a historical Gradient Boosting model
+        trained_model = train_hist_gradient_boosting(data_file_path, scaler_type)
+
+        # Evaluate the trained model (provide test data and labels)
+        # Replace 'X_test' and 'y_test' with your actual test data and labels
+        evaluation_metrics = evaluate_model(trained_model, X_test, y_test)
+
+        # Save the trained model to a file
+        model_filename = 'trained_model'
+        save_model(trained_model, model_filename)
+
+        # Load the saved model from the file
+        loaded_model = load_model(model_filename)
+
+        # Create an ensemble of models (provide a list of trained models)
+        models_to_ensemble = [trained_model, loaded_model]  # Example list of models
+        ensemble_model = create_ensemble_model(models_to_ensemble)
+
+        # Use the ensemble model to make predictions (provide input data 'X')
+        # Replace 'X' with your actual input data
+        ensemble_predictions = ensemble_model.predict(X)
+
+        # Print or log the ensemble predictions
+        print("Ensemble Predictions:", ensemble_predictions)
+
+        # Log success message
+        logging.info("Script execution completed successfully.")
+
+    except Exception as e:
+        # Log any exceptions that occur during script execution
+        logging.error(f"An error occurred: {str(e)}")
+
+    finally:
+        # Perform any necessary cleanup here
+        pass
+

@@ -84,7 +84,7 @@ class MLRobotUtils:
 
         return save_path
 
-    def update_status(status_output, message):
+    def update_status(self, status_output, message):
         status_output.config(state=tk.NORMAL)
         status_output.delete(1.0, tk.END)
         status_output.insert(tk.END, message + "\n")
