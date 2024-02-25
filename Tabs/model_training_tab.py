@@ -1,11 +1,11 @@
 # model_training_tab.py
-
+import os
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 import time
 import asyncio
-import datetime
+from datetime import datetime
 import json
 import logging
-import os
 import queue
 import smtplib
 import threading
@@ -17,7 +17,6 @@ import tkinter as tk
 from tkinter import ttk, filedialog
 
 # Third-party Imports
-import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import optuna
@@ -46,10 +45,14 @@ from xgboost import XGBRegressor
 
 # Local Imports
 from Utilities.Utils import MLRobotUtils
-from model_development.model_training import (
-    create_lstm_model, create_neural_network, train_arima_model
-)
+from model_development.model_training import perform_hyperparameter_tuning
 from functools import wraps
+
+import joblib
+import pickle
+import sklearn
+import keras
+import torch
 
 # Section 1.2: Model training tab class
 # Filter warnings
@@ -79,6 +82,7 @@ class ModelTrainingTab(tk.Frame):
         )
         
         self.setup_model_training_tab()  # Initialize GUI components
+        self.setup_epochs_entry()
         self.scaler_type_var = tk.StringVar()
         self.n_estimators_entry = tk.Entry(self)  # Entry for the number of estimators
         self.n_estimators_entry.pack()
@@ -90,7 +94,14 @@ class ModelTrainingTab(tk.Frame):
         self.error_label = tk.Label(self, text="", fg="red")  # Label for error messages
         self.error_label.pack()
         self.setup_debug_mode_toggle()
-        self.setup_dropout_rate_slider()  
+        self.setup_dropout_rate_slider()
+
+    def setup_epochs_entry(self):
+        # Setup for epochs_entry
+        tk.Label(self, text="Epochs:").pack()
+        self.epochs_entry = tk.Entry(self)
+        self.epochs_entry.insert(0, "50")  # Default value
+        self.epochs_entry.pack()
 
     def setup_dropout_rate_slider(self):
         tk.Label(self, text="Dropout Rate:").pack()
@@ -188,125 +199,46 @@ class ModelTrainingTab(tk.Frame):
 
 
 # Section 2: GUI Components and Functions
-        
-    # Function to show additional input fields based on the selected model type
-        
-    def show_epochs_input(self, event):
-        selected_model_type = self.model_type_var.get()
-        
-        if selected_model_type in ["neural_network", "LSTM"]:
-            if not hasattr(self, 'epochs_label'):
-                self.epochs_label = tk.Label(self, text="Epochs:")
-                self.epochs_entry = tk.Entry(self)
-
-            self.epochs_label.pack(in_=self)
-            self.epochs_entry.pack(in_=self)
-
-            self.window_size_label.pack()
-            self.window_size_entry.pack()
-        else:
-            if hasattr(self, 'epochs_label'):
-                self.epochs_label.pack_forget()
-                self.epochs_entry.pack_forget()
-                self.window_size_label.pack_forget()
-                self.window_size_entry.pack_forget()
-                
-    # Function to start training process
-
-        
-    def start_model_training_thread(self):
-        # Start the model training in a separate thread to avoid blocking the UI
-        training_thread = threading.Thread(target=self.train_model_async)
-        training_thread.daemon = True  # Mark the thread as a daemon so it will be closed when the main program exits
-        training_thread.start()
-        print("Started model training in a background thread.")
-
-    def train_model_async(self):
-        # Replace the entire body of this method
-        self.display_message("Training started...", level="INFO")
-        
-        async def train():
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                loop = asyncio.get_running_loop()
-                # Example training task, replace with actual training logic
-                await loop.run_in_executor(pool, time.sleep, 1)  # Simulate training with sleep
-                self.display_message("Training completed.", level="INFO")
-        
-        asyncio.run(train())
-
-
-
-    async def train_and_monitor_model_async(self):
-        """
-        Asynchronously trains a model and monitors its progress.
-        """
-        # Step 1: Preprocess data asynchronously (if preprocessing is heavy)
-        X_train, X_val, y_train, y_val = await self.async_preprocess_data()
-
-        # Step 2: Initiate model training asynchronously and monitor progress
-        training_task = asyncio.create_task(self.async_train_model(X_train, y_train, X_val, y_val))
-        
-        # Optional: Monitor training progress (e.g., for updating a UI or logging)
-        monitoring_task = asyncio.create_task(self.monitor_training_progress())
-
-        # Wait for the training to complete while monitoring
-        await training_task
-        await monitoring_task
-
-        # Step 3: Post-training actions (e.g., evaluation, saving the model)
-        self.evaluate_model()
-        await self.async_save_model()
-
-    async def async_preprocess_data(self):
-        # Assume there's logic here to load and preprocess your data
-        # For demonstration, let's pretend we load the data here
-        X_train, X_val, y_train, y_val = self.preprocess_data()
-        
-        # Simulate data preprocessing
-        await asyncio.sleep(1)  # Placeholder for actual async preprocessing
-        
-        # Debugging output
-        print(f"X_train: {X_train}, X_val: {X_val}, y_train: {y_train}, y_val: {y_val}")
-        
-        # Ensure variables are not None
-        if None in [X_train, X_val, y_train, y_val]:
-            raise ValueError("One or more data variables are None")
-        
-        return X_train, X_val, y_train, y_val
-
 
     async def async_train_model(self, X_train, y_train, X_val, y_val):
         """
-        Trains the model asynchronously and logs training progress.
+        Trains the model asynchronously, logging progress and handling errors.
         """
-        # Simulate model training
-        for epoch in range(1, self.config['epochs'] + 1):
-            await asyncio.sleep(1)  # Simulate an epoch duration
-            # Log progress here or update your training logic
-            print(f"Epoch {epoch}/{self.config['epochs']} completed")
-        
-        # Model training logic goes here. This could be calling an async function of a training library.
-    
-    async def monitor_training_progress(self):
-        """
-        Monitors and logs the training progress.
-        """
-        # Example monitoring logic
-        while not self.is_training_complete:
-            await asyncio.sleep(0.5)  # Check progress at short intervals
-            # Update progress monitoring here. Could be updating a progress bar, logging, etc.
-            print("Monitoring training progress...")
+        try:
+            for epoch in range(1, self.config['epochs'] + 1):
+                # Perform the training step here (replace with your actual training code)
+                # Example: await self.model.fit(X_train, y_train, ...)
+                await asyncio.sleep(1)  # Replace with actual training call
 
-    def evaluate_model(self, X_test, y_test, model_type):
+                # Log progress
+                self.display_message(f"Epoch {epoch}/{self.config['epochs']} completed", level="INFO")
+                
+                # Optional: Update UI or progress bar here
+
+            self.display_message("Training completed successfully.", level="INFO")
+
+        except Exception as e:
+            self.display_message(f"Error during model training: {str(e)}", level="ERROR")
+            # Consider re-raising the exception if you want to handle it further up
+
+    async def async_preprocess_data(self):
         """
-        Initiates the asynchronous evaluation of the trained model against validation data.
-        
-        Args:
-        - X_test: Test features
-        - y_test: True labels
-        - model_type: 'classification' or 'regression'
+        Loads and preprocesses data asynchronously, handling errors.
         """
-        threading.Thread(target=self.async_evaluate_model, args=(X_test, y_test, model_type), daemon=True).start()
+        try:
+            # Replace with your actual data loading and preprocessing logic
+            await asyncio.sleep(1)  # Placeholder for preprocessing
+            # Example: X_train, X_val, y_train, y_val = ...
+            
+            # Ensure variables are not None
+            if None in [X_train, X_val, y_train, y_val]:
+                raise ValueError("One or more data variables are None")
+
+            return X_train, X_val, y_train, y_val
+
+        except Exception as e:
+            self.display_message(f"Error during data preprocessing: {str(e)}", level="ERROR")
+            raise  # Re-raise the exception to be handled by the caller
 
     def async_evaluate_model(self, X_test, y_test, model_type):
         """
@@ -318,10 +250,22 @@ class ModelTrainingTab(tk.Frame):
         - model_type: 'classification' or 'regression'
         """
         try:
+            # Check if the trained model exists and is valid
+            if self.trained_model is None:
+                raise ValueError("No trained model available for evaluation.")
+
+            # Ensure that the predict method is available for the trained model
+            if not hasattr(self.trained_model, 'predict'):
+                raise AttributeError("The trained model does not support prediction.")
+
             y_pred = self.trained_model.predict(X_test)
             results_message = "Model Evaluation:\n"
 
             if model_type == 'classification':
+                # Check if predict_proba method is available for the trained model
+                if not hasattr(self.trained_model, 'predict_proba'):
+                    raise AttributeError("The trained model does not support probability prediction.")
+
                 y_pred_proba = self.trained_model.predict_proba(X_test)[:, 1]  # Assuming binary classification
                 accuracy = accuracy_score(y_test, y_pred)
                 precision, recall, fscore, _ = precision_recall_fscore_support(y_test, y_pred, average='binary')
@@ -360,27 +304,44 @@ class ModelTrainingTab(tk.Frame):
             error_message = f"Error during model evaluation: {e}"
             self.after(0, lambda: self.display_message(error_message, level="ERROR"))
 
+
     # Implement display_evaluation_results and plot_confusion_matrix as needed for your UI
-    
-    def plot_confusion_matrix(self, conf_matrix, class_names, save_path="confusion_matrix.png", show_plot=True):
+
+
+    def plot_confusion_matrix(self, y_true=None, y_pred=None, conf_matrix=None, 
+                              class_names=None, save_path="confusion_matrix.png", 
+                              show_plot=True):
         """
-        Plot and optionally save the confusion matrix.
+        Plot and optionally save a confusion matrix. Can accept either a confusion matrix,
+        or true and predicted labels to compute the confusion matrix.
 
         Args:
-        - conf_matrix: The confusion matrix to plot.
-        - class_names: The names of the classes.
-        - save_path: The file path to save the plot. Default is "confusion_matrix.png".
-        - show_plot: Whether to display the plot. Default is True.
+            y_true (array-like, optional): True labels. Required if conf_matrix is not provided.
+            y_pred (array-like, optional): Predicted labels. Required if conf_matrix is not provided.
+            conf_matrix (array-like, optional): Precomputed confusion matrix. If provided, y_true and y_pred are ignored.
+            class_names (list, optional): List of class names for labeling the axes. If not provided, integers will be used.
+            save_path (str): Path to save the plot. Defaults to "confusion_matrix.png".
+            show_plot (bool): Whether to display the plot. Defaults to True.
         """
-        fig, ax = plt.subplots()
-        sns.heatmap(conf_matrix, annot=True, fmt="d",
-                    xticklabels=class_names, yticklabels=class_names, ax=ax)
-        plt.ylabel('Actual')
-        plt.xlabel('Predicted')
+        if conf_matrix is None:
+            if y_true is None or y_pred is None:
+                raise ValueError("You must provide either a confusion matrix or true and predicted labels.")
+            conf_matrix = confusion_matrix(y_true, y_pred)
+
+        # Use provided class names or default to integers
+        if class_names is None:
+            class_names = list(range(conf_matrix.shape[0]))
+
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', 
+                    xticklabels=class_names, yticklabels=class_names, cbar=False)
+        plt.xlabel('Predicted Labels')
+        plt.ylabel('True Labels')
         plt.title('Confusion Matrix')
 
         # Save the plot to a file
-        plt.savefig(save_path)
+        if save_path:
+            plt.savefig(save_path)
         
         # Optionally display the plot
         if show_plot:
@@ -405,25 +366,17 @@ class ModelTrainingTab(tk.Frame):
         widget.config(state='disabled')
         widget.see('end')
 
-
-
-    async def async_save_model(self):
-        """
-        Asynchronously saves the trained model to disk.
-        """
-        await asyncio.sleep(0.1)  # Simulate async save operation
-        # Model saving logic here
-        print("Model saved asynchronously.")
-
-
-    def create_sequences(self, features, target, lookback):
+    def create_sequence(self, features, target, lookback):
         X, y = [], []
         for i in range(lookback, len(features)):
             X.append(features[i-lookback:i])
             y.append(target[i])
         return np.array(X), np.array(y)
 
-    def prepare_and_train_lstm_model(self, df, lookback=60, epochs=50, batch_size=32):
+    def prepare_and_train_lstm_model(self, df, scaler_type, lookback=60, epochs=50, batch_size=32):
+        # Get the scaler based on the specified type
+        scaler = self.get_scaler(scaler_type)
+
         # Assuming 'close' is the target variable for prediction
         target_column = 'close'
         
@@ -450,7 +403,7 @@ class ModelTrainingTab(tk.Frame):
         scaled_target = target_scaler.fit_transform(target)
         
         # Creating sequences for LSTM
-        X, y = self.create_sequences(scaled_features, scaled_target.flatten(), lookback)
+        X, y = self.create_sequence(scaled_features, scaled_target.flatten(), lookback)
         
         # Splitting dataset into training and testing
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -470,20 +423,87 @@ class ModelTrainingTab(tk.Frame):
         # Training the model
         model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, validation_data=(X_test, y_test), verbose=1)
         return model, scaler, target_scaler
+    
+    def neural_network_preprocessing(self, data, scaler_type, close_price_column='close', file_path=None):
+        """
+        Specific preprocessing for neural network models.
 
-    # Note: To use this function, pass the DataFrame with your stock market data and optional parameters for lookback, epochs, and batch size.
-    # For example:
-    # model, feature_scaler, target_scaler = self.prepare_and_train_lstm_model(df, lookback=60, epochs=50, batch_size=32)
+        Args:
+            data (DataFrame): The dataset to preprocess.
+            scaler_type (str): Type of scaler to use for feature scaling.
+            close_price_column (str): Name of the column for close prices, which is the target.
+            file_path (str, optional): Path of the data file for logging purposes.
 
-    def start_training(self):
+        Returns:
+            tuple: Preprocessed features (X) and target values (y).
+        """
+        try:
+            if close_price_column not in data.columns:
+                raise ValueError(f"'{close_price_column}' column not found in the data.")
+
+            # Convert date column to numeric features
+            if 'date' in data.columns:
+                data['date'] = pd.to_datetime(data['date'], errors='coerce')
+                data['year'] = data['date'].dt.year
+                data['month'] = data['date'].dt.month
+                data['day'] = data['date'].dt.day
+                data.drop(columns=['date'], inplace=True)
+
+            # Prepare your features and target
+            X = data.drop(columns=[close_price_column])
+            y = data[close_price_column]
+
+            # Handle non-numeric columns here (if any)
+
+            # Scaling features
+            scaler = self.get_scaler(scaler_type)
+            X_scaled = scaler.fit_transform(X)
+
+            return X_scaled, y
+
+        except Exception as e:
+            error_message = f"Error in neural network preprocessing: {str(e)}"
+            if file_path:
+                error_message += f" File path: {file_path}"
+            self.utils.log_message(error_message, self, self.log_text, self.is_debug_mode)
+            return None, None
+
+            
+    def show_epochs_input(self, event):
+        selected_model_type = self.model_type_var.get()
+        
+        if selected_model_type in ["neural_network", "LSTM"]:
+            if not hasattr(self, 'epochs_label'):
+                self.epochs_label = tk.Label(self, text="Epochs:")
+                self.epochs_entry = tk.Entry(self)
+
+            self.epochs_label.pack(in_=self)
+            self.epochs_entry.pack(in_=self)
+
+            self.window_size_label.pack()
+            self.window_size_entry.pack()
+        else:
+            if hasattr(self, 'epochs_label'):
+                self.epochs_label.pack_forget()
+                self.epochs_entry.pack_forget()
+                self.window_size_label.pack_forget()
+                self.window_size_entry.pack_forget()
+
+    def start_training(self, X_test=None, y_test=None):
+        
         if not self.validate_inputs():
             self.display_message("Invalid input. Please check your settings.")
             return
+        # Ensure the entry widget exists and has not been destroyed
+        if hasattr(self, 'epochs_entry'):
+            epochs_str = self.epochs_entry.get()
 
         data_file_path = self.data_file_entry.get()
         scaler_type = self.scaler_type_var.get()
         model_type = self.model_type_var.get()
-        epochs = self.get_epochs(model_type)
+        epochs_str = self.epochs_entry.get()
+        epochs = int(epochs_str) if epochs_str.isdigit() and int(epochs_str) > 0 else 50
+
 
         if epochs is None:
             self.display_message("Error: Number of epochs not specified for the selected model type.")
@@ -514,12 +534,18 @@ class ModelTrainingTab(tk.Frame):
             X, y = create_sequences(scaled_features, scaled_target, sequence_length)
             X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
-            if model_type == "LSTM":
-                model, feature_scaler, target_scaler = self.prepare_and_train_lstm_model(data, lookback=60, epochs=50, batch_size=32)
-                # Perform any additional actions specific to the LSTM model here
-            elif model_type == "neural_network":
+            if model_type == "neural_network":
+                # Preprocess data for neural network
+                X, y = self.neural_network_preprocessing(data, scaler_type)
+                if X is None or y is None:
+                    self.display_message("Preprocessing failed. Training aborted.", level="ERROR")
+                    return
+
+                # Splitting the data into training and validation sets
+                X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+
+                # Neural network training logic
                 try:
-                    # Define the objective function for hyperparameter optimization
                     def objective(trial):
                         # Hyperparameter definitions
                         num_layers = trial.suggest_int('num_layers', 1, 3)
@@ -527,52 +553,77 @@ class ModelTrainingTab(tk.Frame):
                         units_per_layer = trial.suggest_categorical('units', [16, 32, 64, 128])
 
                         # Model creation with the trial's current hyperparameters
-                        best_layers = [units_per_layer] * num_layers
-                        best_dropout = [dropout_rate] * num_layers
+                        model = Sequential()
+                        for _ in range(num_layers):
+                            model.add(Dense(units_per_layer, activation='relu'))
+                            model.add(Dropout(dropout_rate))
+                        model.add(Dense(1))  # Adjust this according to your output layer needs
 
-                        # Create and train the final model with the best parameters
-                        final_model = create_neural_network(input_shape=(sequence_length, features.shape[1]), 
-                                                            timesteps=sequence_length,
-                                                            layers=best_layers, 
-                                                            lstm_layers=None,  # Assuming no LSTM layers for simplicity
-                                                            dropout_rates=best_dropout)
-
-                        final_model.compile(optimizer='adam', loss='mean_squared_error', metrics=['accuracy'])
+                        model.compile(optimizer='adam', loss='mean_squared_error', metrics=['accuracy'])
 
                         # Training the model
-                        history = final_model.fit(X_train, y_train, validation_split=0.2, epochs=10, batch_size=32, verbose=0)
+                        history = model.fit(X_train, y_train, validation_split=0.2, epochs=10, batch_size=32, verbose=0)
 
                         # Objective: Minimize the validation loss
                         validation_loss = np.min(history.history['val_loss'])
                         return validation_loss
 
-                    # Create an Optuna study and optimize the objective
+                    # Optuna study
                     study = optuna.create_study(direction='minimize')
-                    study.optimize(objective, n_trials=10)  # Adjust n_trials as needed based on computational resources
+                    study.optimize(objective, n_trials=10)
 
-                    # Extract the best parameters
+                    # Training final model with best parameters
                     best_params = study.best_params
+                    final_model = Sequential()
+                    for _ in range(best_params['num_layers']):
+                        final_model.add(Dense(best_params['units'], activation='relu'))
+                        final_model.add(Dropout(best_params['dropout_rate']))
+                    final_model.add(Dense(1))  # Adjust this according to your output layer needs
 
-                    # Create and train the final model with the best parameters
-                    final_model = create_neural_network(input_shape=(sequence_length, features.shape[1]), 
-                                                        timesteps=sequence_length,
-                                                        layers=[best_params['units']] * best_params['num_layers'], 
-                                                        lstm_layers=None,  # Assuming no LSTM layers for simplicity
-                                                        dropout_rates=[best_params['dropout_rate']] * best_params['num_layers'])
-                    final_model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+                    final_model.compile(optimizer='adam', loss='mean_squared_error', metrics=['accuracy'])
+                    final_model.fit(X_train, y_train, epochs=best_params.get('epochs', 10), 
+                                    batch_size=best_params.get('batch_size', 32), verbose=1)
+                    self.save_trained_model(final_model, 'neural_network')
 
-                    # Final training with the entire dataset
-                    final_history = final_model.fit(X_train, y_train, validation_split=0.2, 
-                                                    epochs=study.best_params.get('epochs'), 
-                                                    batch_size=study.best_params.get('batch_size'), 
-                                                    verbose=1)
-
-                    # Assuming you have a function to evaluate your model's performance:
-                    self.evaluate_model(final_model, test_data, test_labels)
+                    # Evaluate your model's performance
+                    self.async_evaluate_model(final_model, X_val, y_val)
 
                 except Exception as e:
-                    error_message = f"Error training neural network: {str(e)}"
-                    self.display_message(error_message, level="ERROR")
+                    self.display_message(f"Error training neural network: {str(e)}", level="ERROR")
+
+            elif model_type == "LSTM":
+                try:
+                    # Prepare and train the LSTM model
+                    lstm_model, feature_scaler, target_scaler = self.prepare_and_train_lstm_model(data, scaler_type, lookback=60, epochs=epochs, batch_size=32)
+
+                    # Ensure that the LSTM model is successfully trained
+                    if lstm_model is None:
+                        raise ValueError("LSTM model training failed. The model is None.")
+
+                    self.trained_model = lstm_model  # Assign the trained LSTM model
+
+                    # Evaluate the model (assuming you have a separate evaluation dataset)
+                    if X_test is not None and y_test is not None:
+                        self.async_evaluate_model(X_test, y_test, model_type='regression')  # Assuming LSTM is for regression
+                    else:
+                        self.display_message("Evaluation skipped: X_test or y_test is not provided.", level="WARNING")
+
+                    # Save the model and scalers for later use or deployment
+                    self.save_trained_model(lstm_model, model_type='lstm')
+                    self.save_scaler(feature_scaler, 'feature_scaler_path')
+                    self.save_scaler(target_scaler, 'target_scaler_path')
+
+                    # Optional: Use the model for predictions if applicable
+                    predictions = lstm_model.predict(X_new)
+
+                    # Log training completion
+                    self.display_message("LSTM model training and saving completed successfully.", level="INFO")
+
+                except ValueError as ve:
+                    self.display_message(f"Training failed: {str(ve)}", level="ERROR")
+                except Exception as e:
+                    self.display_message(f"Unexpected error in LSTM training: {str(e)}", level="ERROR")
+                    traceback.print_exc()  # Optionally print the full traceback for debugging
 
 
             elif model_type == "linear_regression":
@@ -582,7 +633,8 @@ class ModelTrainingTab(tk.Frame):
                 lr_model.fit(lr_X_train, lr_y_train)
                 predictions = lr_model.predict(lr_X_val)
                 print("Linear Regression MSE:", mean_squared_error(lr_y_val, predictions))
-
+                self.save_trained_model(lr_model, model_type='linear_regression')
+                
             elif model_type == "random_forest":
                 rf_model = RandomForestRegressor(n_estimators=100)
                 # Use non-sequenced data for RF as well
@@ -590,6 +642,7 @@ class ModelTrainingTab(tk.Frame):
                 rf_model.fit(rf_X_train, rf_y_train.ravel())
                 predictions = rf_model.predict(rf_X_val)
                 print("Random Forest MSE:", mean_squared_error(rf_y_val, predictions))
+                self.save_trained_model(rf_model, model_type= 'random_forest')
 
             elif model_type == "ARIMA":
                 self.train_arima_model_in_background(target)
@@ -599,7 +652,9 @@ class ModelTrainingTab(tk.Frame):
             self.display_message("Training completed successfully.", level="INFO")
 
         except Exception as e:
-            self.display_message(f"Training failed: {str(e)}", level="ERROR")
+            error_message = f"Training failed: {str(e)}\n{traceback.format_exc()}"
+            self.display_message(error_message, level="ERROR")
+
 
         finally:
             self.enable_training_button()  # This ensures the button is always re-enabled
@@ -635,52 +690,35 @@ class ModelTrainingTab(tk.Frame):
 
             # Save model, results, and metadata
             self.save_arima_results(results, model_fit)
+            self.save_trained_model(model_fit, model_type= 'arima')
 
         threading.Thread(target=background_training, args=(close_prices,), daemon=True).start()
         self.display_message("ARIMA model training started in background...", level="INFO")
 
     def save_arima_results(self, results, model_fit):
-        # Use configured model directory path
-        models_directory = self.config['models_directory']  # Assuming self.config is populated from your settings
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        base_path = f'{models_directory}/arima_model_{timestamp}'
-
-        # Save the ARIMA model
-        with open(f'{base_path}.pkl', 'wb') as pkl:
-            pickle.dump(model_fit, pkl)
-
-        # Save predictions and errors
-        with open(f'{base_path}_results.json', 'w') as result_file:
-            json.dump(results, result_file, indent=4)
-
-        print(f"ARIMA model and training results saved to {base_path}")
-
-    async def simulate_training_progress(self):
-        # Simulate training progress (replace with your actual training code)
         try:
-            for progress in range(1, 101):
-                # Simulate time-consuming task
-                await asyncio.sleep(0.1)
-                
-                # Update progress bar
-                self.update_progress_bar(progress)
+            # Get model directory path and prepare file paths
+            models_directory = self.config.get('Paths', 'models_directory')
+            if not os.path.exists(models_directory):
+                os.makedirs(models_directory)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            model_file_path = os.path.join(models_directory, f'arima_model_{timestamp}.pkl')
 
-                # Optionally, you can display a message to the user
-                self.display_message(f"Training Progress: {progress}%")
+            # Save the ARIMA model using the updated save_model_by_type method
+            self.save_model_by_type(model_fit, 'arima', model_file_path)
+            self.display_message(f"ARIMA model saved to {model_file_path}", level="INFO")
+
+            # Save predictions and errors
+            results_file_path = os.path.join(models_directory, f'arima_results_{timestamp}.json')
+            with open(results_file_path, 'w') as result_file:
+                json.dump(results, result_file, indent=4)
+            self.display_message(f"ARIMA model results saved to {results_file_path}", level="INFO")
 
         except Exception as e:
-            logging.error(f"An error occurred during training progress simulation: {str(e)}")
-            self.display_message(f"Training progress error: {str(e)}")
-
-        finally:
-            # Ensure that the progress bar is at 100% even if an error occurred
-            self.update_progress_bar(100)
-
-
-    def update_progress_bar(self, progress):
-        self.progress_var.set(progress)
-        self.update_idletasks()
-
+            error_message = f"Error saving ARIMA model results: {e}"
+            self.display_message(error_message, level="ERROR")
+            raise
+            
     def disable_training_button(self):
         self.start_training_button.config(state='disabled')
 
@@ -688,13 +726,25 @@ class ModelTrainingTab(tk.Frame):
         self.start_training_button.config(state='normal')
 
     def display_message(self, message, level="INFO"):
-        # Optionally, you can color-code messages based on the level or prepend a timestamp
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Define colors for different log levels
+        log_colors = {"INFO": "black", "WARNING": "orange", "ERROR": "red", "DEBUG": "blue"}
+
+        # Get current timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Format the message with timestamp and level
         formatted_message = f"[{timestamp} - {level}] {message}\n"
+
+        # Insert the message into the log_text widget
         self.log_text.config(state='normal')
-        self.log_text.insert(tk.END, formatted_message)
-        self.log_text.config(state='disabled')
+        self.log_text.tag_config(level, foreground=log_colors.get(level, "black"))
+        self.log_text.insert(tk.END, formatted_message, level)
+
+        # Scroll to the end of the log_text widget to show the latest message
         self.log_text.see(tk.END)
+
+        # Disable the log_text widget to prevent user editing
+        self.log_text.config(state='disabled')
 
 
     # Other methods for validation, input retrieval, and setup
@@ -773,7 +823,7 @@ class ModelTrainingTab(tk.Frame):
             self.logger.addHandler(self.handler)
 
         def log(self, message):
-            self.utils.log_message(message, self.log_text)
+            self.display_message(message, self.log_text)
             self.logger.info(message)
 
     def handle_exceptions(logger):
@@ -821,33 +871,118 @@ class ModelTrainingTab(tk.Frame):
         if not os.path.exists(data_file_path):
             raise ValueError("Data file path does not exist")
         if model_type not in ["linear_regression", "neural_network", "random_forest"]:
-            raise ValueError("Unsupported model_type")
+            raise ValueError("Unsupported model type")
         if epochs <= 0:
             raise ValueError("Epochs must be a positive integer")
 
         # Preprocess data
         window_size = int(self.window_size_entry.get()) if model_type == "neural_network" else 1
-        X_train, X_test, y_train, y_test = self.preprocess_data(data_file_path, scaler_type, model_type, window_size)
+        X_train, X_test, y_train, y_test = await self.preprocess_data(data_file_path, scaler_type, model_type, window_size)
 
         # Initialize and configure model
-        model = await self.initialize_and_configure_model(model_type, X_train, epochs)
+        model = await self.initialize_and_configure_model(model_type, X_train.shape[1:], epochs)
         if model is None:
             raise ModelTrainingError("Failed to initialize model")
 
         # Automated hyperparameter tuning
-        best_params = await self.perform_hyperparameter_tuning(model, X_train, y_train, epochs)
+        best_params = await perform_hyperparameter_tuning(model, X_train, y_train, epochs)
 
         # Ensemble and quantize model
-        ensemble_model = self.create_ensemble_model(model, best_params)
+        ensemble_model = self.create_ensemble_model([model], best_params)
         quantized_model = self.quantize_model(ensemble_model)
 
         # Train the model asynchronously
-        await self.train_model_async(quantized_model, X_train, y_train, epochs)
+        training_metrics = await self.train_model_async(quantized_model, X_train, y_train, epochs)
 
         # Post-training actions
         self.trained_model = quantized_model
-        self.log_training_completion()
+        self.log_training_completion(quantized_model, training_metrics)
         self.enable_training_button()
+
+        # Evaluate model performance
+        model_evaluation_results = self.async_evaluate_model(quantized_model, X_test, y_test)
+        self.display_message(f"Model evaluation results: {model_evaluation_results}")
+
+    async def initialize_and_configure_model(self, model_type, input_shape, epochs):
+        """
+        Initialize and configure a machine learning model based on the type.
+
+        Args:
+            model_type (str): Type of the model to initialize.
+            input_shape (tuple): Shape of the input data for neural networks and LSTM models.
+            epochs (int): Number of epochs for training, mainly used for neural networks and LSTM.
+
+        Returns:
+            Initialized model.
+        """
+        if model_type == "neural_network":
+            # Initialization for a simple feedforward neural network
+            model = Sequential([
+                Dense(128, activation='relu', input_shape=input_shape),
+                Dropout(0.2),
+                Dense(64, activation='relu'),
+                Dense(1)  # Adjust based on your output
+            ])
+            model.compile(optimizer='adam', loss='mean_squared_error')  # Customize as needed
+            return model
+
+        elif model_type == "LSTM":
+            # Initialization for an LSTM model
+            model = Sequential([
+                LSTM(50, return_sequences=True, input_shape=(input_shape[1], input_shape[2])),
+                Dropout(0.2),
+                LSTM(50, return_sequences=False),
+                Dropout(0.2),
+                Dense(1)  # Adjust based on your output
+            ])
+            model.compile(optimizer='adam', loss='mean_squared_error')  # Customize as needed
+            return model
+
+        elif model_type == "random_forest":
+            from sklearn.ensemble import RandomForestRegressor
+            model = RandomForestRegressor(n_estimators=100)  # Customize as needed
+            return model
+
+        elif model_type == "linear_regression":
+            from sklearn.linear_model import LinearRegression
+            model = LinearRegression()
+            return model
+
+        elif model_type == "ARIMA":
+            # For ARIMA, the model initialization is different as it's not a sklearn or keras model
+            # We'll return a placeholder or configuration here, as actual model fitting happens during training
+            return {'order': (5, 1, 0)}  # Customize ARIMA order (p,d,q) as needed
+
+        else:
+            raise ValueError("Unsupported model type")
+
+        return None
+
+
+    def log_training_completion(self, model, model_type, training_metrics):
+        """
+        Log the completion of the training process and handle additional tasks.
+
+        Args:
+            model: The trained model.
+            model_type (str): Type of the model (e.g., 'lstm', 'neural_network').
+            training_metrics: Metrics or results from the training process.
+
+        Returns:
+            None
+        """
+        # Log the training completion
+        self.display_message(f"Training completed successfully. Metrics: {training_metrics}", level="INFO")
+
+        # Additional tasks like saving the model
+        try:
+            # Use the save_trained_model method to save the model
+            # Specify the actual path and model type
+            self.save_trained_model(model, model_type=model_type, file_path=f'path/to/save/{model_type}_model')
+            self.display_message("Model saved successfully.", level="INFO")
+        except Exception as e:
+            self.display_message(f"Error saving model: {str(e)}", level="ERROR")
+
 
     async def train_model_async(self, model, X_train, y_train, epochs):
         """
@@ -882,10 +1017,7 @@ class ModelTrainingTab(tk.Frame):
             # Any cleanup if necessary
             pass
 
-
-    # Additional helper methods (initialize_and_configure_model, perform_hyperparameter_tuning,
-    # create_ensemble_model, quantize_model, log_training_completion) go here...
-    def create_ensemble_model(self, base_models, method='voting', weights=None):
+    def create_ensemble_model(self, base_models, train_data, train_labels, method='voting', weights=None):
         """
         Create an ensemble model using the specified method.
 
@@ -941,7 +1073,7 @@ class ModelTrainingTab(tk.Frame):
         # Return the quantized model
         return quantized_model
 
-    def representative_dataset_generator(self):
+    def representative_dataset_generator(self,train_data):
         """
         Generate representative dataset for activation quantization.
 
@@ -965,48 +1097,7 @@ class ModelTrainingTab(tk.Frame):
             return int(epochs_str)
         else:
             # For models like Random Forest, return a default value, like 1 or 0
-            return 1
-
-
-    async def train_model_logic(self, data_file_path, scaler_type, model_type, epochs):
-        try:
-            # Load and preprocess data
-            X_train, X_test, y_train, y_test = self.preprocess_data(data_file_path, scaler_type, model_type, epochs)
-
-            # Model training logic based on the selected model type
-            if model_type == "linear_regression":
-                model = self.train_linear_regression(X_train, y_train)
-            elif model_type == "random_forest":
-                model = self.train_random_forest(X_train, y_train)
-            elif model_type == "neural_network":
-                model = create_neural_network(input_shape=X_train.shape[1])
-                model.fit(X_train, y_train, epochs=epochs)
-            elif model_type == "LSTM":
-                model = create_lstm_model(input_shape=(X_train.shape[1], X_train.shape[2]))
-                model.fit(X_train, y_train, epochs=epochs)
-            elif model_type == "ARIMA":
-                model = train_arima_model(X_train, y_train)
-            # ... Additional model training logic for other model types ...
-
-            # Append the trained model to the list
-            self.trained_models.append(model)
-
-            # Optionally, evaluate the model and log performance metrics
-            if model_type in ["linear_regression", "random_forest", "neural_network", "LSTM", "ARIMA"]:
-                evaluation_result = self.evaluate_model(model, X_test, y_test)
-                self.utils.log_message(f"Model evaluation result: {evaluation_result}" + file_path, self, self.log_text, self.is_debug_mode)
-
-            # Update the trained model information
-            self.trained_model = model
-            self.utils.log_message("Model training completed.", + file_path, self, self.log_text, self.is_debug_mode)
-
-        except Exception as e:
-            # Handle and log any exceptions during training
-            self.utils.log_message(f"Error in model training: {str(e)}" + file_path, self, self.log_text, self.is_debug_mode)
-        finally:
-            # Re-enable the Start Training button regardless of success or exception
-            self.start_training_button.config(state='normal')
-
+            return
 
     #Section 3: Data Preprocessing and Model Integration
             
@@ -1078,18 +1169,27 @@ class ModelTrainingTab(tk.Frame):
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             self.display_message("Data preprocessing completed.", level="INFO")
             return X_train, X_test, y_train, y_test
-
-        except Exception as e:
-            # Handle and log any exceptions during preprocessing
-            self.utils.log_message(f"Error in data preprocessing: {str(e)}"+ file_path, self, self.log_text, self.is_debug_mode)
+        
+        except pd.errors.EmptyDataError as empty_error:
+            # Handle empty data file error
+            self.utils.log_message(f"Empty data error in preprocessing: {str(empty_error)} - {data_file_path}", self.log_text, self.is_debug_mode)
+        except pd.errors.ParserError as parser_error:
+            # Handle parsing error from pandas
+            self.utils.log_message(f"Data parsing error in preprocessing: {str(parser_error)} - {data_file_path}", self.log_text, self.is_debug_mode)
+        except ValueError as value_error:
+            # Handle value errors, typically related to incorrect data types or values
+            self.utils.log_message(f"Value error in preprocessing: {str(value_error)} - {data_file_path}", self.log_text, self.is_debug_mode)
+        except Exception as general_error:
+            # Handle any other exceptions that are not caught by the specific ones above
+            import traceback
+            self.utils.log_message(f"General error in preprocessing: {str(general_error)}\nTraceback: {traceback.format_exc()} - {data_file_path}", self.log_text, self.is_debug_mode)
+        finally:
             return None, None, None, None
-
-
 
     # Define specific preprocessing methods
 
     # Function to preprocess data for ARIMA models
-    def arima_preprocessing(self, data):
+    def arima_preprocessing(self, data, file_path):
         """
         Specific preprocessing for ARIMA models for close price prediction.
 
@@ -1110,30 +1210,18 @@ class ModelTrainingTab(tk.Frame):
             data = data.sort_values(by='date')
 
             # Extract the target variable (close price)
-            if 'close' in data.columns:
-                y = data['close'].values  # Use 'close' as the target column name if it exists
-            elif '4. close' in data.columns:
-                y = data['4. close'].values  # Use '4. close' as the target column name if 'close' does not exist
-            else:
-                self.utils.log_message("Neither 'close' nor '4. close' column found in the dataset." + file_path, self, self.log_text, self.is_debug_mode)
+            target_column = 'close' if 'close' in data.columns else '4. close' if '4. close' in data.columns else None
+            if not target_column:
+                self.utils.log_message("Target column for close prices not found in the dataset." + file_path, self, self.log_text, self.is_debug_mode)
                 return None, None
 
-            # Perform differencing to make the data stationary (if necessary)
-            # Example: y_diff = y - y.shift(1)
-            # This step depends on the stationarity of your data
-
-            # Additional preprocessing steps specific to ARIMA
-            # Example: Feature selection, outlier handling, etc.
+            y = data[target_column].values
 
             # Prepare X (features)
-            # Depending on your specific use case, you may need to engineer features from the time series data
-            # Example: Lag features, rolling statistics, external factors, etc.
-
-            # In this example, we'll use lag features as an illustration
             num_lags = 5  # Adjust the number of lag features as needed
             for lag in range(1, num_lags + 1):
                 data[f'lag_{lag}'] = y.shift(lag)
-            
+
             # Drop rows with NaN values due to lag
             data.dropna(inplace=True)
 
@@ -1141,42 +1229,19 @@ class ModelTrainingTab(tk.Frame):
             X = data[['lag_1', 'lag_2', 'lag_3', 'lag_4', 'lag_5']]  # Replace with your relevant lag features
 
             return X, y
-        except Exception as e:
-            # Handle and log any exceptions during preprocessing
-            self.utils.log_message(f"Error in ARIMA preprocessing: {str(e)}" + file_path, self, self.log_text, self.is_debug_mode)
+
+        except pd.errors.ParserError as parser_error:
+            self.utils.log_message(f"Parser error in ARIMA preprocessing: {str(parser_error)} - {file_path}", self, self.log_text, self.is_debug_mode)
+            return None, None
+        except ValueError as value_error:
+            self.utils.log_message(f"Value error in ARIMA preprocessing: {str(value_error)} - {file_path}", self, self.log_text, self.is_debug_mode)
+            return None, None
+        except Exception as general_error:
+            import traceback
+            self.utils.log_message(f"General error in ARIMA preprocessing: {str(general_error)}\nTraceback: {traceback.format_exc()} - {file_path}", self, self.log_text, self.is_debug_mode)
             return None, None
 
-    def general_preprocessing(self, data, scaler_type, feature_selection=False, num_features=None):
-        """
-        General preprocessing for other model types.
 
-        Args:
-            data (DataFrame): The dataset to preprocess.
-            scaler_type (str): Type of scaler to use for feature scaling.
-            feature_selection (bool): Whether to perform feature selection.
-            num_features (int): Number of top features to select if feature_selection is True.
-
-        Returns:
-            tuple: Preprocessed features (X) and target values (y).
-        """
-        try:
-            # Extract features and target variable
-            X = data.drop('close', axis=1)
-            y = data['close'].values
-
-            # Scale features using the specified scaler
-            X_scaled = self.scale_features(X, scaler_type)
-
-            # Feature selection (optional)
-            if feature_selection:
-                X_scaled = self.select_top_features(X_scaled, y, num_features)
-
-            return X_scaled, y
-        except Exception as e:
-            # Handle and log any exceptions during preprocessing
-            self.utils.log_message(f"Error in general preprocessing: {str(e)}" + file_path, self, self.log_text, self.is_debug_mode)
-            return None, None
-        
     def scale_features(self, X, scaler_type):
         """
         Scale the features using the specified scaler, handling both DataFrames and NumPy arrays.
@@ -1200,7 +1265,6 @@ class ModelTrainingTab(tk.Frame):
         # Select scaler
         scaler = scalers.get(scaler_type, StandardScaler())
 
-        # Check if X is a DataFrame or a NumPy array
         if isinstance(X, pd.DataFrame):
             # If DataFrame, retain column names
             X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
@@ -1209,78 +1273,6 @@ class ModelTrainingTab(tk.Frame):
             X_scaled = scaler.fit_transform(X)
 
         return X_scaled
-
-
-
-
-    # Function to handle ARIMA model training logic
-    def train_arima_model_logic(self, y_train):
-        """
-        Train an ARIMA model with the provided time series data.
-
-        Args:
-            y_train (Series): Time series data for training.
-
-        Returns:
-            ARIMAResultsWrapper: A trained ARIMA model.
-        """
-        # Define and fit the ARIMA model
-        # Note: Adjust the order parameters (p, d, q) based on your data
-        model = train_arima_model(y_train, order=(1, 1, 1))
-        return model
-
-    # Function to integrate the trained models with the rest of the application
-    def integrate_trained_model(self):
-        """
-        Integrate the trained model with the application, update the UI, and handle any post-processing.
-        """
-        try:
-            if self.trained_model:
-                # Update UI components
-                self.update_ui_with_model_info()
-
-                # Save the trained model
-                self.save_trained_model()
-
-                # Perform post-processing (if needed)
-                self.perform_post_processing()
-
-                self.utils.log_message("Model integration complete." + file_path, self, self.log_text, self.is_debug_mode)
-            else:
-                self.utils.log_message("No trained model available for integration." + file_path, self, self.log_text, self.is_debug_mode)
-        except Exception as e:
-            self.utils.log_message(f"Error during model integration: {str(e)}" + file_path, self, self.log_text, self.is_debug_mode)
-
-    def update_ui_with_model_info(self):
-        """
-        Update UI components with information about the integrated model.
-        """
-        if self.trained_model:
-            model_type_label.config(text=f"Model Type: {self.model_type}")
-            predict_button.config(state='normal')
-            if hasattr(self.trained_model, 'score'):
-                accuracy_label.config(text=f"Model Accuracy: {self.calculate_model_accuracy():.2f}%")
-        else:
-            predict_button.config(state='disabled')
-
-
-    def get_model_type(self):
-        """
-        Get the type of the integrated model.
-
-        Returns:
-            str: Model type (e.g., "Linear Regression", "Neural Network", "ARIMA", "Random Forest", "LSTM").
-        """
-        if isinstance(self.trained_model, ARIMA):
-            return "ARIMA"
-        elif isinstance(self.trained_model, RandomForestRegressor):
-            return "Random Forest"
-        elif isinstance(self.trained_model, NeuralNetwork):
-            return "Neural Network"
-        elif isinstance(self.trained_model, LinearRegression):
-            return "Linear Regression"
-        else:
-            return "Unknown"
 
     def calculate_model_accuracy(self, X_test, y_test):
         """
@@ -1301,73 +1293,114 @@ class ModelTrainingTab(tk.Frame):
             print(f"Error calculating model accuracy: {str(e)}")
         return 0.0
 
+    def save_scaler(self, scaler):
+        try:
+            # Open a file dialog for the user to select a save location
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".pkl",
+                filetypes=[("Pickle files", "*.pkl"), ("All Files", "*.*")],
+                title="Save Scaler As"
+            )
 
-    # You can add more functions and UI components as needed for your specific application.
+            # Check if the user canceled the save operation
+            if not file_path:
+                self.display_message("Save operation canceled.", level="INFO")
+                return
 
-    
-    def save_trained_model(self):
+            # Save the scaler
+            with open(file_path, 'wb') as file:
+                pickle.dump(scaler, file)
+            self.display_message(f"Scaler saved successfully at {file_path}", level="INFO")
+
+        except Exception as e:
+            self.display_message(f"Error saving scaler: {str(e)}", level="ERROR")
+
+
+    def save_trained_model(self, model=None, model_type=None, scaler=None, file_path=None):
         """
-        Enhanced save trained model to a file with metadata and version control.
-
+        Save the trained model, scaler, and any metadata to separate files with user interaction for file path.
+        Args:
+            model: The trained model to be saved. Defaults to self.trained_model if None.
+            model_type (str): The type of the trained model.
+            scaler: The trained scaler. Defaults to self.trained_scaler if None.
+            file_path (str): The base file path for saving. If None, a file dialog is used to determine the path.
         Returns:
             None
         """
-        if self.trained_model is None:
+        model = model or self.trained_model
+        scaler = scaler or getattr(self, 'trained_scaler', None)
+
+        if model is None:
             self.utils.log_message("No trained model available to save.", self, self.log_text, self.is_debug_mode)
             return
 
         try:
-            # Determine the model type and file extension based on the model
-            model_type = self.get_model_type(self.trained_model)
+            if model_type is None:
+                raise ValueError("Model type must be provided.")
+
+            # Determine the model type and file extension
             file_extension = self.get_file_extension(model_type)
 
-            # Open a file dialog for the user to choose the save location and filename
-            # Default filename includes timestamp for version control
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            default_filename = f"{model_type}_{timestamp}{file_extension}"
-            file_path = filedialog.asksaveasfilename(defaultextension=file_extension,
-                                                     initialfile=default_filename,
-                                                     filetypes=[(f"{model_type.upper()} Files", f"*{file_extension}"), ("All Files", "*.*")])
+            # User interaction for file path if not provided
+            if file_path is None:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                default_filename = f"{model_type}_{timestamp}{file_extension}"
+                file_path = filedialog.asksaveasfilename(defaultextension=file_extension,
+                                                        initialfile=default_filename,
+                                                        filetypes=[(f"{model_type.upper()} Files", f"*{file_extension}"), ("All Files", "*.*")])
 
-            if not file_path:  # User canceled the save dialog
-                return
+                if not file_path:  # User canceled the save dialog
+                    self.utils.log_message("Save operation canceled by user.", self, self.log_text, self.is_debug_mode)
+                    return
 
-            # Save the model based on its type
-            self.save_model_by_type(self.trained_model, model_type, file_path)
+            # Save the model
+            self.save_model_by_type(model, model_type, file_path)
 
-            # If available, also save scaler and metadata
-            if hasattr(self, 'trained_scaler'):
-                # Save scaler to a separate file, adjust the path and extension as needed
-                scaler_path = file_path.replace(file_extension, '_scaler.pkl')
-                with open(scaler_path, 'wb') as scaler_file:
-                    pickle.dump(self.trained_scaler, scaler_file)
+            # Save the scaler if available
+            if scaler:
+                scaler_file_path = file_path.replace(file_extension, '_scaler.pkl')
+                with open(scaler_file_path, 'wb') as scaler_file:
+                    pickle.dump(scaler, scaler_file)
+                self.utils.log_message(f"Scaler saved to {scaler_file_path}", self, self.log_text, self.is_debug_mode)
 
-            # Construct and save metadata
-            metadata = self.construct_metadata(self.trained_model, model_type)  # You need to implement this method
-            metadata_path = file_path.replace(file_extension, '_metadata.json')
-            with open(metadata_path, 'w') as metadata_file:
+            # Prepare and save metadata
+            metadata = self.construct_metadata(model, model_type)
+            metadata['scaler_type'] = type(scaler).__name__ if scaler else None
+            metadata['scaler_params'] = scaler.get_params() if scaler else None
+
+            metadata_file_path = file_path.replace(file_extension, '_metadata.json')
+            with open(metadata_file_path, 'w') as metadata_file:
                 json.dump(metadata, metadata_file, indent=4)
+            self.utils.log_message(f"Metadata saved to {metadata_file_path}", self, self.log_text, self.is_debug_mode)
 
             self.utils.log_message(f"Model and associated data saved to {file_path}", self, self.log_text, self.is_debug_mode)
         except Exception as e:
             self.utils.log_message(f"Error saving model: {str(e)}", self, self.log_text, self.is_debug_mode)
+            raise  # Reraising the exception for further handling if necessary
 
 
     def save_model_by_type(self, model, model_type, file_path):
-        """
-        Save the model to disk based on its type.
-        """
-        if model_type in ['keras_lstm', 'keras_nn']:
-            model.save(file_path)
-        elif model_type in ['random_forest', 'linear_regression', 'xgboost']:
+        # Convert model_type to lowercase for consistent comparison
+        model_type = model_type.lower()
+
+        if model_type == 'linear_regression' or model_type == 'random_forest':
+            # Save scikit-learn model
             joblib.dump(model, file_path)
+        elif model_type == 'lstm' or model_type == 'neural_network':
+            # Save Keras model
+            model.save(file_path)
         elif model_type == 'arima':
+            # Save ARIMA model
             with open(file_path, 'wb') as pkl:
                 pickle.dump(model, pkl)
-
         else:
+            print(f"Unsupported model type: {model_type}")
             raise ValueError(f"Unsupported model type: {model_type}")
-        
+
+        print(f"Model of type '{model_type}' saved successfully.")
+
+
+
     def construct_metadata(self, model, model_type):
         """
         Construct and return metadata for the model, including parameters and performance metrics.
@@ -1400,16 +1433,7 @@ class ModelTrainingTab(tk.Frame):
             metadata[attr] = getattr(self, attr, 'N/A')
         
         return metadata
-    # Function to handle exceptions during model training
-    def handle_model_training_exceptions(self, func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                self.error_label.config(text=f"Error in model training: {e}", fg="red")
-                self.utils.log_message(f"Model training error: {e}" + file_path, self, self.log_text, self.is_debug_mode)
-        return wrapper
+
 
     def start_automated_training(self):
         interval = self.schedule_dropdown.get()
@@ -1438,7 +1462,7 @@ class ModelTrainingTab(tk.Frame):
         Run the automated training tasks, including model training and real-time analytics monitoring.
         """
         # Log the start of automated training
-        self.utils.log_message("Automated training started." + file_path, self, self.log_text, self.is_debug_mode)
+        self.utils.log_message("Automated training started." + data_file_path, self, self.log_text, self.is_debug_mode)
 
         # Implement adaptive learning logic based on past performance
         model_type = self.config.get("Model", "model_type")
@@ -1452,7 +1476,7 @@ class ModelTrainingTab(tk.Frame):
         self.initiate_real_time_training_monitoring()
 
         # Log the completion of automated training
-        self.utils.log_message("Automated training completed." + file_path, self, self.log_text, self.is_debug_mode)
+        self.utils.log_message("Automated training completed." + data_file_path, self, self.log_text, self.is_debug_mode)
 
         # Show a message box to notify the user
         messagebox.showinfo("Automated Training", "Automated training completed.")
@@ -1525,8 +1549,7 @@ class ModelTrainingTab(tk.Frame):
 
     def preview_selected_data(self, file_path):
         # Log the action of previewing data
-        self.utils.log_message("Previewing data from file: " + file_path, self.log_text, self.is_debug_mode)
-
+        self.display_message("Previewing data from file: " + file_path)
         # Check if the file exists
         if not os.path.exists(file_path):
             self.utils.log_message("File does not exist: " + file_path, self.log_text, self.is_debug_mode)
@@ -1568,30 +1591,6 @@ class ModelTrainingTab(tk.Frame):
 
         # Optionally, upload the model to cloud storage for persistence and global access
         self.upload_model_to_cloud(file_path)
-
-    # Function to initiate the model training process
-    def initiate_model_training(self, data_file_path, scaler_type, model_type, epochs):
-        """
-        Initiate model training in a separate thread, ensuring all necessary parameters are included.
-
-        Parameters:
-            data_file_path (str): Path to the processed data file.
-            scaler_type (str): Type of scaler to use for data normalization.
-            model_type (str): Type of model to train.
-            epochs (int): Number of epochs to train the model.
-        """
-        try:
-            log_message = "Starting model training with {}".format(data_file_path)
-            self.utils.log_message(log_message, self, self.log_text, self.is_debug_mode)
-            # Make sure to pass 'epochs' and other parameters correctly to the 'train_model' method.
-            training_thread = threading.Thread(target=self.train_model_async, args=(data_file_path, scaler_type, model_type, epochs))
-            training_thread.start()
-        except Exception as e:
-            error_message = "Error in model training: {} - {}".format(str(e), data_file_path)
-            self.utils.log_message(error_message, self, self.log_text, self.is_debug_mode)
-            print("Debug: {}".format(error_message))
-
-
 
     # ... (Additional methods and logic as required for your application) ...
 
@@ -1777,20 +1776,6 @@ class ModelTrainingTab(tk.Frame):
         plt.ylabel('Residuals')
         plt.title('Residual Plot')
         plt.axhline(y=0, color='r', linestyle='-')
-        plt.show()
-
-    def plot_confusion_matrix(self, confusion_matrix):
-        """
-        Plot a confusion matrix.
-
-        Args:
-            confusion_matrix (array): The confusion matrix to be plotted.
-        """
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(confusion_matrix, annot=True, fmt='d', cmap='Blues', cbar=False)
-        plt.xlabel('Predicted Labels')
-        plt.ylabel('True Labels')
-        plt.title('Confusion Matrix')
         plt.show()
 
     def send_notification(self, subject, message):
@@ -1981,33 +1966,6 @@ class ModelTrainingTab(tk.Frame):
         finally:
             self.after(100, self.process_queue)
 
-    def train_linear_regression(self, data_file_path, scaler_type):
-        try:
-            # Load and preprocess data
-            X_train, X_test, y_train, y_test = self.preprocess_data(data_file_path, scaler_type, "linear_regression")
-
-            # Initialize the Linear Regression model
-            model = LinearRegression()
-
-            # Train the model
-            model.fit(X_train, y_train)
-
-            # Evaluate the model
-            score = model.score(X_test, y_test)
-            self.display_message(f"Linear Regression Model Score: {score}")
-
-            # Update the trained model information
-            self.trained_model = model
-            self.utils.log_message("Linear regression model training completed.", self, self.log_text, self.is_debug_mode)
-
-            # Re-enable the Start Training button and update UI
-            self.enable_training_button()
-            self.display_message("Training completed successfully.", level="INFO")
-
-        except Exception as e:
-            self.utils.log_message(f"Error in training linear regression model: {str(e)}", self, self.log_text, self.is_debug_mode)
-            self.error_label.config(text=f"Error in training linear regression model: {e}", fg="red")
-
     def update_gui_with_progress(self, progress_data):
         # Update progress bar and log
         self.progress_var.set(progress_data['progress'])
@@ -2029,35 +1987,6 @@ class ModelTrainingTab(tk.Frame):
         self.log_text.insert('end', "Training resumed.\n")
         self.log_text.see('end')
         self.log_text.config(state='disabled')
-
-    def neural_network_preprocessing(self, data, scaler_type):
-        """
-        Specific preprocessing for neural network models.
-
-        Args:
-            data (DataFrame): The dataset to preprocess.
-            scaler_type (str): Type of scaler to use for feature scaling.
-
-        Returns:
-            tuple: Preprocessed features (X) and target values (y).
-        """
-        try:
-            # 1. Feature scaling
-            # Create a scaler object based on the specified scaler_type
-            scaler = self.get_scaler(scaler_type)
-            
-            # Apply feature scaling to the dataset excluding the target column
-            scaled_data = scaler.fit_transform(data.drop('target', axis=1))
-
-            # 2. Prepare target variable
-            # Replace 'target' with your actual target column name
-            y = data['target'].values 
-
-            return scaled_data, y
-        except Exception as e:
-            # Handle and log any exceptions during preprocessing
-            self.utils.log_message(f"Error in neural network preprocessing: {str(e)}" + file_path, self, self.log_text, self.is_debug_mode)
-            return None, None
         
     def show_dynamic_options(self, event):
         # Clear current dynamic options
@@ -2068,7 +1997,7 @@ class ModelTrainingTab(tk.Frame):
         if selected_model_type == "neural_network":
             self.setup_neural_network_options()
         elif selected_model_type == "LSTM":
-            self.setup_lstm_options()
+            self.setup_neural_network_options()
         elif selected_model_type == "ARIMA":
             self.setup_arima_options()
         elif selected_model_type == "linear_regression":
@@ -2078,36 +2007,40 @@ class ModelTrainingTab(tk.Frame):
         # ... add other model type specific options ...
 
     def setup_neural_network_options(self):
-        # Epochs input
+        # Epochs input with default value
         tk.Label(self.dynamic_options_frame, text="Epochs:").pack()
         self.epochs_entry = tk.Entry(self.dynamic_options_frame)
+        self.epochs_entry.insert(0, "50")  # Default value
         self.epochs_entry.pack()
 
-        # Window Size input
+        # Window Size input with default value
         tk.Label(self.dynamic_options_frame, text="Window Size:").pack()
         self.window_size_entry = tk.Entry(self.dynamic_options_frame)
+        self.window_size_entry.insert(0, "30")  # Default value
         self.window_size_entry.pack()
 
-    # LSTM can use the same options as the neural network
-    setup_lstm_options = setup_neural_network_options
+        # Add a 'Submit' button with a command to validate and apply the settings
+        submit_button = tk.Button(self.dynamic_options_frame, text="Submit", command=self.apply_neural_network_options)
+        submit_button.pack()
 
-    def setup_lstm_options(self):
-        # Clear any existing widgets in the frame
-        for widget in self.dynamic_options_frame.winfo_children():
-            widget.destroy()
+    
+    def apply_neural_network_options(self):
+        try:
+            # Validate and retrieve epochs
+            epochs = int(self.epochs_entry.get())
+            if epochs <= 0:
+                raise ValueError("Epochs must be a positive integer.")
 
-        # Epochs input
-        tk.Label(self.dynamic_options_frame, text="Epochs:").pack()
-        self.epochs_entry = tk.Entry(self.dynamic_options_frame)
-        self.epochs_entry.pack()
+            # Validate and retrieve window size
+            window_size = int(self.window_size_entry.get())
+            if window_size <= 0:
+                raise ValueError("Window Size must be a positive integer.")
 
-        # Window Size input
-        tk.Label(self.dynamic_options_frame, text="Window Size:").pack()
-        self.window_size_entry = tk.Entry(self.dynamic_options_frame)
-        self.window_size_entry.pack()
+            # Further processing with validated values...
+            # For example, setting these values in the model configuration
 
-        # Additional LSTM-specific options can be added here
-        # For example, you might want to add options for number of layers, dropout rate, etc.
+        except ValueError as e:
+            tk.messagebox.showerror("Input Error", str(e))
 
     def setup_arima_options(self):
         # ARIMA p-value
@@ -2197,36 +2130,40 @@ class ModelTrainingTab(tk.Frame):
 
             # Add more advanced settings as needed
 
-    def get_model_type(self, model):
-        if isinstance(model, sklearn.base.BaseEstimator):
+    def get_model_type(self, model=None):
+        """
+        Get the type of the model.
+
+        Args:
+            model (optional): The model to check.
+
+        Returns:
+            str: Model type.
+        """
+        if model is None:
+            model = self.trained_model
+
+        # Update these checks based on your actual model classes
+        if isinstance(model, ARIMA):
+            return "ARIMA"
+        elif isinstance(model, RandomForestRegressor):
+            return "Random Forest"
+        elif hasattr(model, 'predict') and not isinstance(model, (sklearn.base.BaseEstimator, keras.models.Model, torch.nn.Module)):
+            return "Custom Neural Network"  # For custom neural network models
+        elif isinstance(model, LinearRegression):
+            return "LINEAR REGRESSION"
+        elif isinstance(model, sklearn.base.BaseEstimator):
             return "sklearn"
-        elif isinstance(model, Model):
+        elif isinstance(model, keras.models.Model):
             return "keras"
         elif isinstance(model, torch.nn.Module):
             return "pytorch"
-        return "unknown_model"
+        else:
+            return "Unknown"
 
     def get_file_extension(self, model_type):
         extensions = {"sklearn": ".joblib", "keras": ".h5", "pytorch": ".pth"}
         return extensions.get(model_type, ".model")
-
-    def plot_regression_results(self, y_true, y_pred):
-        """Plotting function for regression results."""
-        plt.scatter(y_true, y_pred, alpha=0.3)
-        plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], '--r')
-        plt.xlabel('True Value')
-        plt.ylabel('Predicted Value')
-        plt.title('Regression Results')
-        plt.show()
-
-    def plot_confusion_matrix(self, y_true, y_pred):
-        """Plotting function for confusion matrix (for classification)."""
-        matrix = confusion_matrix(y_true, y_pred)
-        sns.heatmap(matrix, annot=True, fmt='g')
-        plt.xlabel('Predicted Label')
-        plt.ylabel('True Label')
-        plt.title('Confusion Matrix')
-        plt.show()
 
     def create_windowed_data(self, X, y, n_steps):
         X_new, y_new = [], []
@@ -2234,146 +2171,3 @@ class ModelTrainingTab(tk.Frame):
             X_new.append(X[i:i + n_steps])
             y_new.append(y[i + n_steps])
         return np.array(X_new), np.array(y_new)
-
-    # Merged Code for Saving Metadata and Scaler
-    def save_model_data(self, file_path, model, scaler):
-        """
-        Save the trained model, scaler, and any metadata to separate files.
-
-        Args:
-            file_path (str): The base file path for saving the model, scaler, and metadata.
-            model: The trained model to be saved.
-            scaler: The trained scaler.
-
-        Returns:
-            None
-        """
-        try:
-            # Determine file extensions and paths based on the model type
-            model_type = self.get_model_type(model)
-            model_file_path = file_path + self.get_file_extension(model_type)
-            scaler_file_path = file_path + "_scaler.pkl"
-            metadata_file_path = file_path + "_metadata.json"
-
-            # Save the model
-            self.save_model_by_type(model, model_type, model_file_path)
-
-            # Save the scaler
-            with open(scaler_file_path, 'wb') as scaler_file:
-                pickle.dump(scaler, scaler_file)
-
-            # Prepare metadata
-            metadata = {
-                'scaler_type': type(scaler).__name__,
-                'scaler_params': scaler.get_params(),
-                'model_type': model_type,
-                'data_shape': model.input_shape if hasattr(model, 'input_shape') else None
-                # Add more metadata as required
-            }
-
-            # Save metadata
-            with open(metadata_file_path, 'w') as metadata_file:
-                json.dump(metadata, metadata_file)
-
-            self.utils.log_message(f"Model, scaler, and metadata saved successfully." + file_path, self, self.log_text, self.is_debug_mode)
-
-        except Exception as e:
-            self.utils.log_message(f"Error saving model data: {str(e)}" + file_path, self, self.log_text, self.is_debug_mode)
-
-
-    def select_top_features(self, X, y, num_features):
-        """
-        Select the top 'num_features' based on their importance.
-
-        Args:
-            X (numpy array): Feature matrix.
-            y (numpy array): Target variable.
-            num_features (int): Number of features to select.
-
-        Returns:
-            numpy array: Reduced feature matrix with selected top features.
-        """
-        # Initialize the feature selector
-        selector = SelectKBest(score_func=f_regression, k=num_features)
-
-        # Fit to the data and transform it
-        X_selected = selector.fit_transform(X, y)
-
-        return X_selected
-
-    @staticmethod
-    def convert_date_to_timestamp(date_str):
-        """ Convert a date string to a Unix timestamp. """
-        try:
-            date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-            return time.mktime(date.timetuple())
-        except ValueError:
-            return None
-
-    def train_random_forest(self, data_file_path, scaler_type, target_column='close'):
-        try:
-            # Load and preprocess the data
-            data = pd.read_csv(data_file_path)
-            if target_column not in data.columns:
-                raise ValueError(f"Target column '{target_column}' not found in the dataset.")
-
-            # Convert date columns to timestamps
-            for column in data.columns:
-                if data[column].dtype == 'object':
-                    # Assuming the date is in 'YYYY-MM-DD' format, adapt if necessary
-                    if data[column].str.match(r'\d{4}-\d{2}-\d{2}').any():
-                        data[column] = data[column].apply(self.convert_date_to_timestamp)
-
-            X = data.drop(target_column, axis=1)
-            y = data[target_column]
-
-            # Impute NaN values
-            imputer = SimpleImputer(strategy='mean')
-            X_imputed = imputer.fit_transform(X)
-
-            # Scale features
-            X_scaled = self.scale_features(X_imputed, scaler_type)
-
-            # Split the data
-            X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2)
-
-            # Define hyperparameter grid
-            param_grid = {
-                'n_estimators': [100, 200, 300],
-                'max_depth': [None, 10, 20, 30],
-                'min_samples_split': [2, 5, 10],
-                'min_samples_leaf': [1, 2, 4],
-                'bootstrap': [True, False]
-            }
-
-            # Initialize Random Forest model
-            rf = RandomForestRegressor()
-
-            # Hyperparameter tuning with Grid Search
-            grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=5, n_jobs=-1)
-            grid_search.fit(X_train, y_train)
-            best_rf = grid_search.best_estimator_
-
-            # Train the model with the best hyperparameters
-            best_rf.fit(X_train, y_train)
-
-            return best_rf
-        except FileNotFoundError:
-            logging.error(f"Data file not found at path: {data_file_path}")
-            raise
-        except Exception as e:
-            self.display_message(f"Error during model training: {str(e)}", level="ERROR")
-            raise
-
-    # Example usage of train_random_forest
-    # model = train_random_forest(data_file_path, scaler_type, target_column)
-
-
-    # Method to create scaler selection dropdown
-    def setup_scaler_selection(self):
-        tk.Label(self, text="Choose Scaler:").pack()
-        self.scaler_var = tk.StringVar()
-        self.scaler_dropdown = ttk.Combobox(self, textvariable=self.scaler_var, 
-                                            values=["StandardScaler", "MinMaxScaler", 
-                                                    "RobustScaler", "Normalizer", "MaxAbsScaler"])
-        self.scaler_dropdown.pack()

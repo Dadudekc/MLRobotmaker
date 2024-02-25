@@ -32,6 +32,7 @@ import numpy as np
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Flatten, BatchNormalization, InputLayer
 from tensorflow.keras.optimizers import Adam, RMSprop
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -95,67 +96,85 @@ def train_model(X_train, y_train, model_type='linear_regression', hyperparameter
 # Function for creating a customizable neural network model
 
 
+def create_neural_network(X_train, y_train, sequence_length, features_shape):
+    try:
+        def objective(trial):
+            # Hyperparameter definitions
+            num_layers = trial.suggest_int('num_layers', 1, 3)
+            dropout_rate = trial.suggest_uniform('dropout_rate', 0.1, 0.5)
+            units_per_layer = trial.suggest_categorical('units', [16, 32, 64, 128])
+            lstm_units = trial.suggest_categorical('lstm_units', [16, 32, 64])
 
-def create_neural_network(input_shape, timesteps=None, layers=[128, 64], lstm_layers=None, dropout_rates=None, output_units=1, output_activation='sigmoid',
-                          activation='relu', optimizer='adam', loss='binary_crossentropy', metrics=['accuracy']):
-    print("Creating neural network with the following configuration:")
-    print(f"Input shape: {input_shape}, Timesteps: {timesteps}, Layers: {layers}, LSTM Layers: {lstm_layers}, Dropout Rates: {dropout_rates}")
-    model = Sequential()
-    
-    if timesteps:
-        input_shape = (timesteps, input_shape[1])
-        model.add(InputLayer(input_shape=input_shape))
-    else:
-        model.add(InputLayer(input_shape=input_shape))
-    
-    if lstm_layers:
-        for i, lstm_units in enumerate(lstm_layers):
-            model.add(LSTM(lstm_units, return_sequences=(i < len(lstm_layers) - 1)))
-            if dropout_rates and i < len(dropout_rates):
-                model.add(Dropout(dropout_rates[i]))
-            model.add(BatchNormalization())
+            # Model creation with the trial's current hyperparameters
+            model = Sequential()
 
-    for i, units in enumerate(layers):
-        if i == 0 and lstm_layers:
-            model.add(Flatten())
-        model.add(Dense(units, activation=activation))
-        if dropout_rates and not lstm_layers or i >= len(lstm_layers):
-            model.add(Dropout(dropout_rates[i]))
-        model.add(BatchNormalization())
+            # Adding LSTM layers
+            for i in range(num_layers):
+                if i == 0:
+                    # First layer needs to specify input shape
+                    model.add(LSTM(lstm_units, return_sequences=(num_layers > 1), input_shape=(sequence_length, features_shape)))
+                else:
+                    model.add(LSTM(lstm_units, return_sequences=(i < num_layers - 1)))
+                model.add(Dropout(dropout_rate))
 
-    model.add(Dense(output_units, activation=output_activation))
-    model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
-    print("Model created and compiled.")
-    return model
+            # Adding Dense layers
+            for _ in range(num_layers):
+                model.add(Dense(units_per_layer, activation='relu'))
+                model.add(Dropout(dropout_rate))
+            
+            # Output layer for regression
+            model.add(Dense(1, activation='linear')) 
 
-def objective(trial):
-    print("Starting a trial.")
-    # Dynamic model configuration
-    num_layers = trial.suggest_int('num_layers', 1, 3)
-    dropout_rate = trial.suggest_uniform('dropout_rate', 0.1, 0.5)
-    units_per_layer = trial.suggest_categorical('units', [16, 32, 64, 128])
-    optimizer = trial.suggest_categorical('optimizer', ['adam', 'rmsprop'])
-    batch_size = trial.suggest_categorical('batch_size', [16, 32, 64])
-    epochs = trial.suggest_int('epochs', 10, 100)
-    
-    use_lstm = trial.suggest_categorical('use_lstm', [True, False])
-    lstm_layers = [trial.suggest_int('lstm_units', 32, 128)] if use_lstm else None
+            model.compile(optimizer='adam', loss='mean_squared_error', metrics=['mean_squared_error'])
 
-    best_dropout = [dropout_rate] * (num_layers + (1 if use_lstm else 0))
+            # Training the model
+            history = model.fit(X_train, y_train, validation_split=0.2, epochs=10, batch_size=32, verbose=0)
 
-    final_model = create_neural_network(input_shape=(sequence_length, features.shape[1]), 
-                                        timesteps=sequence_length if use_lstm else None,
-                                        layers=[units_per_layer] * num_layers, 
-                                        lstm_layers=lstm_layers,
-                                        dropout_rates=best_dropout,
-                                        optimizer=optimizer)
+            # Objective: Minimize the validation loss
+            validation_loss = np.min(history.history['val_loss'])
+            return validation_loss
 
-    print(f"Training model with {epochs} epochs and batch size {batch_size}.")
-    history = final_model.fit(X_train, y_train, validation_split=0.2, epochs=epochs, batch_size=batch_size, verbose=1)
+        # Create an Optuna study and optimize the objective
+        study = optuna.create_study(direction='minimize')
+        study.optimize(objective, n_trials=10)  # Adjust n_trials as needed
 
-    validation_loss = np.min(history.history['val_loss'])
-    print(f"Trial complete. Validation loss: {validation_loss}")
-    return validation_loss
+        # Extract the best parameters
+        best_params = study.best_params
+
+        # Rebuild the model with the best parameters
+        final_model = Sequential()
+
+        # Adding LSTM layers
+        for i in range(best_params['num_layers']):
+            if i == 0:
+                final_model.add(LSTM(best_params['lstm_units'], return_sequences=(best_params['num_layers'] > 1), input_shape=(sequence_length, features_shape)))
+            else:
+                final_model.add(LSTM(best_params['lstm_units'], return_sequences=(i < best_params['num_layers'] - 1)))
+            final_model.add(Dropout(best_params['dropout_rate']))
+
+        # Adding Dense layers
+        for _ in range(best_params['num_layers']):
+            final_model.add(Dense(best_params['units'], activation='relu'))
+            final_model.add(Dropout(best_params['dropout_rate']))
+        
+        # Output layer for regression
+        final_model.add(Dense(1, activation='linear')) 
+
+        final_model.compile(optimizer='adam', loss='mean_squared_error', metrics=['mean_squared_error'])
+
+        # Final training with the entire dataset
+        final_history = final_model.fit(X_train, y_train, validation_split=0.2, 
+                                        epochs=study.best_params.get('epochs', 10), 
+                                        batch_size=study.best_params.get('batch_size', 32), 
+                                        verbose=1)
+
+        return final_model
+
+    except Exception as e:
+        error_message = f"Error training neural network: {str(e)}"
+        print(error_message)
+        return None
+
 
 def optimize_model():
     print("Optimizing model with Optuna.")
