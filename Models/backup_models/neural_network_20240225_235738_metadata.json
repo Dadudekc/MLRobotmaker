@@ -1,0 +1,9 @@
+{
+    "model_type": "neural_network",
+    "training_date": "2024-02-25 23:57:46",
+    "model_parameters": "N/A",
+    "epochs": "N/A",
+    "batch_size": "N/A",
+    "scaler_type": null,
+    "scaler_params": null
+}

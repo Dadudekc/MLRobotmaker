@@ -5,7 +5,7 @@ from tkinter import filedialog, messagebox, scrolledtext
 import pandas as pd
 import configparser
 from Data_processing.technical_indicators import TechnicalIndicators
-from Utilities.Utils import MLRobotUtils
+from Utilities.utils import MLRobotUtils
 import os
 
 class DataProcessingTab:

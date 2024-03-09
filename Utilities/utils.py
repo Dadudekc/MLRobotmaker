@@ -14,12 +14,14 @@ class MLRobotUtils:
         if is_debug_mode:
             print(message)  # Log to the console
 
-        if log_text_widget and root_window:  # Check if log_text_widget and root_window are provided
+        # Updated check to ensure log_text_widget is not None and is an instance of a tkinter Text widget
+        if log_text_widget and isinstance(log_text_widget, tk.Text) and root_window:
             def append_message():
-                log_text_widget.config(state='normal')
-                log_text_widget.insert(tk.END, message + "\n")
-                log_text_widget.config(state='disabled')
-                log_text_widget.see(tk.END)
+                if isinstance(log_text_widget, tk.Text):  # Ensure log_text_widget is a Text widget
+                    log_text_widget.config(state='normal')
+                    log_text_widget.insert(tk.END, message + "\n")
+                    log_text_widget.config(state='disabled')
+                    log_text_widget.see(tk.END)
 
             # Ensure the GUI update is done in a thread-safe manner using the existing root window
             root_window.after(0, append_message)

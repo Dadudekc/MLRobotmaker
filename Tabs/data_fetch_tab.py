@@ -15,7 +15,7 @@ from alpha_vantage.timeseries import TimeSeries
 import logging
 import sys
 sys.path.append(r'C:\Users\Dagurlkc\OneDrive\Desktop\DaDudeKC\MLRobot')
-from Utilities.Utils import MLRobotUtils
+from Utilities.utils import MLRobotUtils
 from Data_fetch.main import main as fetch_main
 from Data_fetch.alpha_vantage_df import AlphaVantageDataFetcher
 from Data_processing.visualization import ChartCreator

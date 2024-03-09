@@ -1,0 +1,14 @@
+{
+    "model_type": "linear_regression",
+    "training_date": "2024-02-25 18:00:24",
+    "model_parameters": {
+        "copy_X": true,
+        "fit_intercept": true,
+        "n_jobs": null,
+        "positive": false
+    },
+    "epochs": "N/A",
+    "batch_size": "N/A",
+    "scaler_type": null,
+    "scaler_params": null
+}

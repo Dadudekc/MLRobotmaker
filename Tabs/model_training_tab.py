@@ -42,17 +42,24 @@ from sklearn.preprocessing import (
 )
 from statsmodels.tsa.arima.model import ARIMA
 from xgboost import XGBRegressor
-
+from sklearn.pipeline import make_pipeline
+from sklearn.metrics import mean_squared_error
+import joblib
 # Local Imports
-from Utilities.Utils import MLRobotUtils
+from Utilities.utils import MLRobotUtils
 from model_development.model_training import perform_hyperparameter_tuning
 from functools import wraps
-
-import joblib
+from sklearn.base import BaseEstimator
+import h2o
+import shap
+import plotly.express as px
 import pickle
 import sklearn
 import keras
 import torch
+from featuretools import EntitySet, dfs, list_primitives
+
+
 
 # Section 1.2: Model training tab class
 # Filter warnings
@@ -200,26 +207,6 @@ class ModelTrainingTab(tk.Frame):
 
 # Section 2: GUI Components and Functions
 
-    async def async_train_model(self, X_train, y_train, X_val, y_val):
-        """
-        Trains the model asynchronously, logging progress and handling errors.
-        """
-        try:
-            for epoch in range(1, self.config['epochs'] + 1):
-                # Perform the training step here (replace with your actual training code)
-                # Example: await self.model.fit(X_train, y_train, ...)
-                await asyncio.sleep(1)  # Replace with actual training call
-
-                # Log progress
-                self.display_message(f"Epoch {epoch}/{self.config['epochs']} completed", level="INFO")
-                
-                # Optional: Update UI or progress bar here
-
-            self.display_message("Training completed successfully.", level="INFO")
-
-        except Exception as e:
-            self.display_message(f"Error during model training: {str(e)}", level="ERROR")
-            # Consider re-raising the exception if you want to handle it further up
 
     async def async_preprocess_data(self):
         """
@@ -374,13 +361,8 @@ class ModelTrainingTab(tk.Frame):
         return np.array(X), np.array(y)
 
     def prepare_and_train_lstm_model(self, df, scaler_type, lookback=60, epochs=50, batch_size=32):
-        # Get the scaler based on the specified type
-        scaler = self.get_scaler(scaler_type)
-
-        # Assuming 'close' is the target variable for prediction
-        target_column = 'close'
-        
         # Ensure target_column is in the DataFrame
+        target_column = 'close'
         if target_column not in df.columns:
             raise ValueError(f"Target column '{target_column}' not found in DataFrame")
 
@@ -392,22 +374,21 @@ class ModelTrainingTab(tk.Frame):
         # Exclude the original date column and use 'days_since' for training
         features = df.drop(columns=[target_column, 'date']).values
         target = df[target_column].values
-        
-        # Scaling the features
-        scaler = self.get_scaler(scaler_type)
-        scaled_features = scaler.fit_transform(features)
-        
-        # Scaling the target
+
+        # Scaling the features and target
+        feature_scaler = self.get_scaler(scaler_type)
+        scaled_features = feature_scaler.fit_transform(features)
         target = target.reshape(-1, 1)
         target_scaler = self.get_scaler(scaler_type)
         scaled_target = target_scaler.fit_transform(target)
-        
+
         # Creating sequences for LSTM
         X, y = self.create_sequence(scaled_features, scaled_target.flatten(), lookback)
-        
-        # Splitting dataset into training and testing
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        
+
+        # Splitting dataset into training, testing, and new data
+        X_train, X_remaining, y_train, y_remaining = train_test_split(X, y, test_size=0.4, random_state=42)
+        X_test, X_new, y_test, y_new = train_test_split(X_remaining, y_remaining, test_size=0.5, random_state=42)
+
         # Defining the LSTM model
         model = Sequential([
             LSTM(units=50, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])),
@@ -416,13 +397,16 @@ class ModelTrainingTab(tk.Frame):
             Dropout(0.2),
             Dense(units=1)
         ])
-        
+
         # Compiling the model
         model.compile(optimizer='adam', loss='mean_squared_error')
-        
+
         # Training the model
-        model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, validation_data=(X_test, y_test), verbose=1)
-        return model, scaler, target_scaler
+        trained_model = self.train_neural_network_or_lstm(X_train, y_train, X_test, y_test, model_type, epochs)
+
+
+        return model, feature_scaler, target_scaler, X_test, y_test, X_new, y_new
+
     
     def neural_network_preprocessing(self, data, scaler_type, close_price_column='close', file_path=None):
         """
@@ -452,6 +436,7 @@ class ModelTrainingTab(tk.Frame):
             # Prepare your features and target
             X = data.drop(columns=[close_price_column])
             y = data[close_price_column]
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
             # Handle non-numeric columns here (if any)
 
@@ -468,7 +453,31 @@ class ModelTrainingTab(tk.Frame):
             self.utils.log_message(error_message, self, self.log_text, self.is_debug_mode)
             return None, None
 
-            
+    def preprocess_new_data(self, new_data):
+        scaled_new_data = self.feature_scaler.transform(new_data)
+        X_new = self.create_sequence(scaled_new_data, self.lookback)
+        return X_new
+
+    def load_unseen_test_data(filepath):
+        """
+        Load unseen test data from a CSV file.
+
+        Parameters:
+        filepath (str): The path to the CSV file containing the test data.
+
+        Returns:
+        DataFrame: The loaded test data.
+        """
+        try:
+            data = pd.read_csv(filepath)
+            return data
+        except FileNotFoundError:
+            print(f"File not found: {filepath}")
+            return None
+        except Exception as e:
+            print(f"An error occurred while loading the data: {e}")
+            return None
+
     def show_epochs_input(self, event):
         selected_model_type = self.model_type_var.get()
         
@@ -490,24 +499,15 @@ class ModelTrainingTab(tk.Frame):
                 self.window_size_entry.pack_forget()
 
     def start_training(self, X_test=None, y_test=None):
-        
         if not self.validate_inputs():
             self.display_message("Invalid input. Please check your settings.")
             return
-        # Ensure the entry widget exists and has not been destroyed
-        if hasattr(self, 'epochs_entry'):
-            epochs_str = self.epochs_entry.get()
 
         data_file_path = self.data_file_entry.get()
         scaler_type = self.scaler_type_var.get()
         model_type = self.model_type_var.get()
         epochs_str = self.epochs_entry.get()
         epochs = int(epochs_str) if epochs_str.isdigit() and int(epochs_str) > 0 else 50
-
-
-        if epochs is None:
-            self.display_message("Error: Number of epochs not specified for the selected model type.")
-            return
 
         try:
             self.disable_training_button()
@@ -516,149 +516,246 @@ class ModelTrainingTab(tk.Frame):
             # Load and preprocess the data
             data = pd.read_csv(data_file_path)
             self.display_message("Data loading and preprocessing started.", level="INFO")
-            features = data.drop(['date', 'close'], axis=1)
-            target = data['close']
-
-            scaler = self.get_scaler(scaler_type)
-            scaled_features = scaler.fit_transform(features)
-            scaled_target = scaler.fit_transform(target.values.reshape(-1, 1))
-
-            def create_sequences(features, target, sequence_length):
-                X, y = [], []
-                for i in range(len(features) - sequence_length):
-                    X.append(features[i:(i + sequence_length)])
-                    y.append(target[i + sequence_length, 0])
-                return np.array(X), np.array(y)
-
-            sequence_length = 5
-            X, y = create_sequences(scaled_features, scaled_target, sequence_length)
+            X, y = self.preprocess_data_with_feature_engineering(data)
             X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
-            if model_type == "neural_network":
-                # Preprocess data for neural network
-                X, y = self.neural_network_preprocessing(data, scaler_type)
-                if X is None or y is None:
-                    self.display_message("Preprocessing failed. Training aborted.", level="ERROR")
-                    return
-
-                # Splitting the data into training and validation sets
-                X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
-
-                # Neural network training logic
-                try:
-                    def objective(trial):
-                        # Hyperparameter definitions
-                        num_layers = trial.suggest_int('num_layers', 1, 3)
-                        dropout_rate = trial.suggest_uniform('dropout_rate', 0.1, 0.5)
-                        units_per_layer = trial.suggest_categorical('units', [16, 32, 64, 128])
-
-                        # Model creation with the trial's current hyperparameters
-                        model = Sequential()
-                        for _ in range(num_layers):
-                            model.add(Dense(units_per_layer, activation='relu'))
-                            model.add(Dropout(dropout_rate))
-                        model.add(Dense(1))  # Adjust this according to your output layer needs
-
-                        model.compile(optimizer='adam', loss='mean_squared_error', metrics=['accuracy'])
-
-                        # Training the model
-                        history = model.fit(X_train, y_train, validation_split=0.2, epochs=10, batch_size=32, verbose=0)
-
-                        # Objective: Minimize the validation loss
-                        validation_loss = np.min(history.history['val_loss'])
-                        return validation_loss
-
-                    # Optuna study
-                    study = optuna.create_study(direction='minimize')
-                    study.optimize(objective, n_trials=10)
-
-                    # Training final model with best parameters
-                    best_params = study.best_params
-                    final_model = Sequential()
-                    for _ in range(best_params['num_layers']):
-                        final_model.add(Dense(best_params['units'], activation='relu'))
-                        final_model.add(Dropout(best_params['dropout_rate']))
-                    final_model.add(Dense(1))  # Adjust this according to your output layer needs
-
-                    final_model.compile(optimizer='adam', loss='mean_squared_error', metrics=['accuracy'])
-                    final_model.fit(X_train, y_train, epochs=best_params.get('epochs', 10), 
-                                    batch_size=best_params.get('batch_size', 32), verbose=1)
-                    self.save_trained_model(final_model, 'neural_network')
-
-                    # Evaluate your model's performance
-                    self.async_evaluate_model(final_model, X_val, y_val)
-
-                except Exception as e:
-                    self.display_message(f"Error training neural network: {str(e)}", level="ERROR")
-
-            elif model_type == "LSTM":
-                try:
-                    # Prepare and train the LSTM model
-                    lstm_model, feature_scaler, target_scaler = self.prepare_and_train_lstm_model(data, scaler_type, lookback=60, epochs=epochs, batch_size=32)
-
-                    # Ensure that the LSTM model is successfully trained
-                    if lstm_model is None:
-                        raise ValueError("LSTM model training failed. The model is None.")
-
-                    self.trained_model = lstm_model  # Assign the trained LSTM model
-
-                    # Evaluate the model (assuming you have a separate evaluation dataset)
-                    if X_test is not None and y_test is not None:
-                        self.async_evaluate_model(X_test, y_test, model_type='regression')  # Assuming LSTM is for regression
-                    else:
-                        self.display_message("Evaluation skipped: X_test or y_test is not provided.", level="WARNING")
-
-                    # Save the model and scalers for later use or deployment
-                    self.save_trained_model(lstm_model, model_type='lstm')
-                    self.save_scaler(feature_scaler, 'feature_scaler_path')
-                    self.save_scaler(target_scaler, 'target_scaler_path')
-
-                    # Optional: Use the model for predictions if applicable
-                    predictions = lstm_model.predict(X_new)
-
-                    # Log training completion
-                    self.display_message("LSTM model training and saving completed successfully.", level="INFO")
-
-                except ValueError as ve:
-                    self.display_message(f"Training failed: {str(ve)}", level="ERROR")
-                except Exception as e:
-                    self.display_message(f"Unexpected error in LSTM training: {str(e)}", level="ERROR")
-                    traceback.print_exc()  # Optionally print the full traceback for debugging
-
-
-            elif model_type == "linear_regression":
-                lr_model = LinearRegression()
-                # For linear regression, revert to non-sequenced data
-                lr_X_train, lr_X_val, lr_y_train, lr_y_val = train_test_split(scaled_features[:-sequence_length], scaled_target[sequence_length:], test_size=0.2, random_state=42)
-                lr_model.fit(lr_X_train, lr_y_train)
-                predictions = lr_model.predict(lr_X_val)
-                print("Linear Regression MSE:", mean_squared_error(lr_y_val, predictions))
-                self.save_trained_model(lr_model, model_type='linear_regression')
-                
-            elif model_type == "random_forest":
-                rf_model = RandomForestRegressor(n_estimators=100)
-                # Use non-sequenced data for RF as well
-                rf_X_train, rf_X_val, rf_y_train, rf_y_val = train_test_split(scaled_features[:-sequence_length], scaled_target[sequence_length:], test_size=0.2, random_state=42)
-                rf_model.fit(rf_X_train, rf_y_train.ravel())
-                predictions = rf_model.predict(rf_X_val)
-                print("Random Forest MSE:", mean_squared_error(rf_y_val, predictions))
-                self.save_trained_model(rf_model, model_type= 'random_forest')
-
+            trained_model = None
+            if model_type in ['neural_network', 'LSTM']:
+                trained_model = self.train_neural_network_or_lstm_with_regularization_and_transfer_learning(
+                    X_train, y_train, X_val, y_val, model_type, epochs,
+                    pretrained_model_path=None  # Specify if using pretrained models
+                )
+            elif model_type == 'linear_regression':
+                trained_model = self.train_linear_regression_with_auto_optimization(X_train, y_train)
+            elif model_type == 'random_forest':
+                trained_model = self.train_random_forest_with_auto_optimization(X_train, y_train)
             elif model_type == "ARIMA":
-                self.train_arima_model_in_background(target)
+                # Assuming target variable is correctly defined earlier in your code
+                self.train_arima_model_in_background(y)
+            
+            # Visualization and explanation for compatible models
+            if model_type == 'random_forest':
+                # Use SHAP for tree-based model explanation
+                import shap
+                explainer = shap.TreeExplainer(trained_model)
+                shap_values = explainer.shap_values(X_train)
+                shap.summary_plot(shap_values, X_train, plot_type="bar")
+            elif model_type == 'neural_network':
+                # SHAP DeepExplainer for neural network models
+                import shap
+                # Assuming `X_train` is your training set and `trained_model` is your trained Keras model
+                try:
+                    explainer = shap.DeepExplainer(trained_model, X_train[:100])  # Using a subset of training data for efficiency
+                    shap_values = explainer.shap_values(X_val[:10])  # Use a small validation set to calculate SHAP values
+                    
+                    # Visualize the first prediction's explanation
+                    shap.initjs()  # Initialize JavaScript visualization in Jupyter notebook if applicable
+                    shap.force_plot(explainer.expected_value[0], shap_values[0][0], X_val.iloc[0])  # Adjust index for multi-output
+                except Exception as e:
+                    print(f"Error in SHAP explanation for neural network: {str(e)}")
 
-            # Simulate a delay for demonstration purposes; replace or remove with actual model training code
-            time.sleep(2)  # Simulate training delay
+            elif model_type == 'LSTM':
+                # LSTM models explanation
+                # SHAP explanations for sequence models like LSTM can be more complex and may require adaptations.
+                import shap
+                # Assuming your LSTM model is compatible with SHAP's DeepExplainer
+                try:
+                    # It's critical to ensure that your data (X_train) is in the correct 3D shape expected by LSTM models
+                    explainer = shap.DeepExplainer(trained_model, X_train[:100])  # Use a subset of your data if large
+                    shap_values = explainer.shap_values(X_val[:10])  # Evaluating on a subset of validation data
+                    
+                    # Visualizing SHAP values for LSTM can be tricky since they're sequence models. Here's a basic example:
+                    # Visualize the first sequence's explanation
+                    shap.initjs()
+                    shap.force_plot(explainer.expected_value[0], shap_values[0][0], feature_names=['timestep_'+str(i) for i in range(X_val.shape[1])])
+                except Exception as e:
+                    print(f"Error in SHAP explanation for LSTM: {str(e)}")
+
+            else:
+                self.display_message("Explanation for the given model type is not supported or implemented yet.", level="WARNING")
+            
+            self.visualize_data(data)
+
             self.display_message("Training completed successfully.", level="INFO")
+            self.save_trained_model(trained_model, model_type)
 
         except Exception as e:
             error_message = f"Training failed: {str(e)}\n{traceback.format_exc()}"
             self.display_message(error_message, level="ERROR")
-
-
         finally:
-            self.enable_training_button()  # This ensures the button is always re-enabled
+            self.enable_training_button()
 
+
+    def create_lag_features(self, data, column_name, lags):
+        """
+        Creates lag features based on specified lags.
+
+        Args:
+            data (DataFrame): The input data.
+            column_name (str): The name of the column to create lag features for.
+            lags (list of int): The lag periods to create features for.
+
+        Returns:
+            DataFrame: The data with added lag features.
+        """
+        for lag in lags:
+            data[f'{column_name}_lag_{lag}'] = data[column_name].shift(lag)
+        return data
+
+    def create_rolling_window_features(self, data, column_name, windows):
+        """
+        Creates rolling window features based on specified window sizes.
+
+        Args:
+            data (DataFrame): The input data.
+            column_name (str): The name of the column to create rolling window features for.
+            windows (list of int): The window sizes to create features for.
+
+        Returns:
+            DataFrame: The data with added rolling window features.
+        """
+        for window in windows:
+            data[f'{column_name}_rolling_mean_{window}'] = data[column_name].rolling(window=window).mean()
+            data[f'{column_name}_rolling_std_{window}'] = data[column_name].rolling(window=window).std()
+        return data
+
+    def preprocess_data_with_feature_engineering(self, data):
+        # Convert 'date' column to datetime and create a numeric feature from it
+        if 'date' in data.columns:
+            data['date'] = pd.to_datetime(data['date'])
+            reference_date = pd.to_datetime('2000-01-01')  # Reference date can be adjusted
+            data['days_since_reference'] = (data['date'] - reference_date).dt.days
+
+        # Ensure there's a unique index
+        if 'index' not in data.columns:
+            data.reset_index(inplace=True, drop=False)
+        
+        # Create lag and rolling window features for 'close' price
+        lags = [1, 2, 3, 5, 10]  # Example lag days
+        rolling_windows = [5, 10, 20]  # Example rolling windows
+        data = self.create_lag_features(data, 'close', lags)
+        data = self.create_rolling_window_features(data, 'close', rolling_windows)
+        
+        # Drop rows with NaN values that were created by lag and rolling features
+        data.dropna(inplace=True)
+        
+        # Exclude the 'date' column if it's still present after creating numeric features
+        data = data.drop(columns=['date'], errors='ignore')
+        
+        # Separate the target variable and features
+        y = data['close']
+        X = data.drop(columns=['close'])
+        
+        return X, y
+
+
+    def load_pretrained_model(self, model_path, custom_objects=None):
+        """
+        Load a pre-trained model from the specified path.
+        
+        Args:
+            model_path (str): Path to the pre-trained model.
+            custom_objects (dict): Optionally, a dictionary of custom objects if the model uses any.
+        
+        Returns:
+            keras.models.Model: The loaded pre-trained model.
+        """
+        try:
+            model = load_model(model_path, custom_objects=custom_objects)
+            print("Pre-trained model loaded successfully.")
+            return model
+        except Exception as e:
+            print(f"Error loading the pre-trained model: {e}")
+            return None
+
+    def train_neural_network_or_lstm_with_regularization_and_transfer_learning(self, X_train, y_train, X_val, y_val, model_type, epochs=100, pretrained_model_path=None):
+        from keras.models import load_model
+        from keras.regularizers import l1_l2
+        from keras.layers import BatchNormalization
+        from keras.optimizers import Adam
+        from keras.callbacks import EarlyStopping
+        
+        if pretrained_model_path:
+            model = load_model(pretrained_model_path)
+            # Freeze the layers except the last N layers for fine-tuning
+            for layer in model.layers[:-5]:
+                layer.trainable = False
+        else:
+            model = Sequential()
+        
+        if model_type == "neural_network":
+            model.add(Dense(128, activation='relu', input_shape=(X_train.shape[1],), kernel_regularizer=l1_l2(l1=0.01, l2=0.01)))
+            model.add(BatchNormalization())
+        elif model_type == "LSTM":
+            model.add(LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], 1), kernel_regularizer=l1_l2(l1=0.01, l2=0.01)))
+            model.add(BatchNormalization())
+
+        # Common layers for both fresh and pre-trained models
+        model.add(Dropout(0.2))
+        model.add(Dense(64, activation='relu', kernel_regularizer=l1_l2(l1=0.01, l2=0.01)))
+        model.add(Dense(1))  # Output layer
+
+        model.compile(optimizer=Adam(lr=1e-4), loss='mean_squared_error')  # Lower learning rate for fine-tuning
+        early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=epochs, batch_size=32, callbacks=[early_stopping])
+
+        return model
+
+    def train_linear_regression_with_auto_optimization(self, X_train, y_train):
+        from sklearn.model_selection import RandomizedSearchCV
+        from sklearn.linear_model import Ridge
+        import numpy as np
+        
+        # Define parameter grid
+        param_grid = {
+            'alpha': np.logspace(-4, 0, 50)
+        }
+        
+        # Create Ridge regression model as a base model for simplicity
+        model = Ridge()
+        randomized_search = RandomizedSearchCV(model, param_grid, n_iter=10, cv=5, scoring='neg_mean_squared_error')
+        randomized_search.fit(X_train, y_train)
+        
+        return randomized_search.best_estimator_
+
+    def train_random_forest_with_auto_optimization(self, X_train, y_train, random_state=None):
+        from sklearn.ensemble import RandomForestRegressor
+        from sklearn.model_selection import RandomizedSearchCV
+        import numpy as np
+        
+        # Hyperparameter grid - Adjusted for a balance between model simplicity and complexity
+        param_grid = {
+            'n_estimators': np.linspace(10, 300, num=20, dtype=int),  # More varied range
+            'max_depth': [None, 10, 20, 30, 40],  # Including None for unlimited depth
+            'min_samples_split': [2, 5, 10, 15],
+            'min_samples_leaf': [1, 2, 4, 6]
+        }
+        
+        # Random forest model
+        rf = RandomForestRegressor(random_state=random_state)
+        
+        # Setup RandomizedSearchCV
+        rf_random_search = RandomizedSearchCV(
+            estimator=rf,
+            param_distributions=param_grid,
+            n_iter=50,  # Reduced the number of iterations
+            cv=3,  # Reduced the number of folds for faster computation
+            verbose=1,
+            random_state=random_state,
+            n_jobs=-1
+        )
+        
+        try:
+            # Fit the random search model
+            rf_random_search.fit(X_train, y_train)
+        except Exception as e:
+            print(f"Error during RandomizedSearchCV: {e}")
+            return None
+        
+        print("Best parameters found: ", rf_random_search.best_params_)
+        return rf_random_search.best_estimator_
+
+    
     def train_arima_model_in_background(self, close_prices):
         def background_training(close_prices):
             results = {
@@ -719,6 +816,100 @@ class ModelTrainingTab(tk.Frame):
             self.display_message(error_message, level="ERROR")
             raise
             
+    def save_trained_model(self, model=None, model_type=None, scaler=None, file_path=None):
+        """
+        Save the trained model, scaler, and any metadata to separate files. Enhanced to handle direct file path specification
+        or user interaction for file path selection, with explicit handling for .joblib file extension.
+        Args:
+            model: The trained model to be saved. Defaults to self.trained_model if None.
+            model_type (str): The type of the trained model.
+            scaler: The trained scaler. Defaults to self.trained_scaler if None.
+            file_path (str): The base file path for saving. If None, a file dialog is used to determine the path.
+        Returns:
+            None
+        """
+        model = model or self.trained_model
+        scaler = scaler or getattr(self, 'trained_scaler', None)
+
+        if model is None or model_type is None:
+            print("No trained model available to save or model type not provided.")
+            return
+
+        # Determine the model type and file extension
+        file_extension = ".joblib"
+
+        # User interaction for file path if not provided
+        if file_path is None:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            default_filename = f"{model_type}_{timestamp}{file_extension}"
+            file_path = filedialog.asksaveasfilename(defaultextension=file_extension,
+                                                    initialfile=default_filename,
+                                                    filetypes=[(f"{model_type.upper()} Files", f"*{file_extension}"), ("All Files", "*.*")])
+
+            if not file_path:  # User canceled the save dialog
+                print("Save operation canceled by user.")
+                return
+
+        # Append "_model" suffix before the file extension if not directly specified by user
+        if not file_path.endswith(file_extension):
+            file_path += "_model" + file_extension
+
+        # Save the model
+        joblib.dump(model, file_path)
+        print(f"Model of type '{model_type}' saved successfully at {file_path}")
+
+        # Save the scaler if present
+        if scaler is not None:
+            scaler_file_path = file_path.replace(file_extension, "_scaler.joblib")
+            joblib.dump(scaler, scaler_file_path)
+            print(f"Scaler saved successfully at {scaler_file_path}")
+
+        # Prepare and save metadata
+        metadata = self.construct_metadata(model, model_type, scaler)
+        metadata_file_path = file_path.replace(file_extension, "_metadata.json")
+        with open(metadata_file_path, 'w') as metadata_file:
+            json.dump(metadata, metadata_file, indent=4)
+        print(f"Metadata saved to {metadata_file_path}")
+
+    def construct_metadata(self, model, model_type, scaler=None):
+        """
+        Construct and return metadata for the model, including parameters, performance metrics, and optionally scaler information.
+        Args:
+            model: The trained model.
+            model_type (str): The type of the trained model.
+            scaler: The trained scaler. Optional; defaults to None.
+        Returns:
+            dict: The constructed metadata.
+        """
+        metadata = {
+            'model_type': model_type,
+            'training_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+        if hasattr(model, 'get_params'):
+            # For simplicity, convert all parameter values to strings
+            metadata['model_parameters'] = {param: str(value) for param, value in model.get_params().items()}
+
+        if hasattr(model, 'named_steps'):
+            metadata['pipeline_steps'] = {}
+            for name, step in model.named_steps.items():
+                # Represent each step by its class name and parameters
+                step_representation = {
+                    'class': step.__class__.__name__,
+                    'parameters': {param: str(value) for param, value in step.get_params().items()}
+                }
+                metadata['pipeline_steps'][name] = step_representation
+
+        if scaler:
+            metadata['scaler'] = {
+                'class': scaler.__class__.__name__,
+                'parameters': {param: str(value) for param, value in scaler.get_params().items()}
+            }
+
+        return metadata
+
+    # Other methods for validation, input retrieval, and setup
+
     def disable_training_button(self):
         self.start_training_button.config(state='disabled')
 
@@ -746,8 +937,6 @@ class ModelTrainingTab(tk.Frame):
         # Disable the log_text widget to prevent user editing
         self.log_text.config(state='disabled')
 
-
-    # Other methods for validation, input retrieval, and setup
 
     def validate_inputs(self):
         # Set default values for various inputs
@@ -892,7 +1081,7 @@ class ModelTrainingTab(tk.Frame):
         quantized_model = self.quantize_model(ensemble_model)
 
         # Train the model asynchronously
-        training_metrics = await self.train_model_async(quantized_model, X_train, y_train, epochs)
+        training_metrics = await self.train_model_sync(quantized_model, X_train, y_train, epochs)
 
         # Post-training actions
         self.trained_model = quantized_model
@@ -983,10 +1172,9 @@ class ModelTrainingTab(tk.Frame):
         except Exception as e:
             self.display_message(f"Error saving model: {str(e)}", level="ERROR")
 
-
-    async def train_model_async(self, model, X_train, y_train, epochs):
+    def train_model_sync(self, model, X_train, y_train, epochs):
         """
-        Asynchronous method to train the model.
+        Synchronously train the model.
 
         Args:
             model: The machine learning model to train.
@@ -998,24 +1186,11 @@ class ModelTrainingTab(tk.Frame):
             None
         """
         try:
-            loop = asyncio.get_event_loop()
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                # Consider handling TensorFlow/Keras models differently if necessary
-                future = loop.run_in_executor(executor, model.fit, X_train, y_train, epochs=epochs, verbose=1)
-                
-                while not future.done():
-                    await asyncio.sleep(1)
-                    # Update progress bar based on actual progress (if possible)
-                
-                # Consider handling the result of future here (e.g., model training results)
-                await future
+            # Directly train the model without async calls
+            model.fit(X_train, y_train, epochs=epochs, verbose=1)
         except Exception as e:
-            # Proper error handling
             print(f"Error in training model: {e}")
-            # Consider logging the error as well
-        finally:
-            # Any cleanup if necessary
-            pass
+
 
     def create_ensemble_model(self, base_models, train_data, train_labels, method='voting', weights=None):
         """
@@ -1293,90 +1468,34 @@ class ModelTrainingTab(tk.Frame):
             print(f"Error calculating model accuracy: {str(e)}")
         return 0.0
 
-    def save_scaler(self, scaler):
+    def save_scaler(self, scaler, file_path=None):
         try:
-            # Open a file dialog for the user to select a save location
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".pkl",
-                filetypes=[("Pickle files", "*.pkl"), ("All Files", "*.*")],
-                title="Save Scaler As"
-            )
+            # If file_path is not provided, open a file dialog for the user to select a save location
+            if file_path is None:
+                file_path = filedialog.asksaveasfilename(
+                    defaultextension=".pkl",
+                    filetypes=[("Pickle files", "*.pkl"), ("All Files", "*.*")],
+                    title="Save Scaler As"
+                )
 
-            # Check if the user canceled the save operation
-            if not file_path:
-                self.display_message("Save operation canceled.", level="INFO")
-                return
+                # Check if the user canceled the save operation
+                if not file_path:
+                    self.display_message("Save operation canceled.", level="INFO")
+                    return
 
-            # Save the scaler
-            with open(file_path, 'wb') as file:
-                pickle.dump(scaler, file)
+            # Determine the appropriate method to save the scaler
+            if isinstance(scaler, (StandardScaler, MinMaxScaler, RobustScaler, Normalizer, MaxAbsScaler)):
+                joblib.dump(scaler, file_path)
+            else:
+                # If scaler is not a recognized type, use pickle
+                with open(file_path, 'wb') as file:
+                    pickle.dump(scaler, file)
+
             self.display_message(f"Scaler saved successfully at {file_path}", level="INFO")
 
         except Exception as e:
             self.display_message(f"Error saving scaler: {str(e)}", level="ERROR")
 
-
-    def save_trained_model(self, model=None, model_type=None, scaler=None, file_path=None):
-        """
-        Save the trained model, scaler, and any metadata to separate files with user interaction for file path.
-        Args:
-            model: The trained model to be saved. Defaults to self.trained_model if None.
-            model_type (str): The type of the trained model.
-            scaler: The trained scaler. Defaults to self.trained_scaler if None.
-            file_path (str): The base file path for saving. If None, a file dialog is used to determine the path.
-        Returns:
-            None
-        """
-        model = model or self.trained_model
-        scaler = scaler or getattr(self, 'trained_scaler', None)
-
-        if model is None:
-            self.utils.log_message("No trained model available to save.", self, self.log_text, self.is_debug_mode)
-            return
-
-        try:
-            if model_type is None:
-                raise ValueError("Model type must be provided.")
-
-            # Determine the model type and file extension
-            file_extension = self.get_file_extension(model_type)
-
-            # User interaction for file path if not provided
-            if file_path is None:
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                default_filename = f"{model_type}_{timestamp}{file_extension}"
-                file_path = filedialog.asksaveasfilename(defaultextension=file_extension,
-                                                        initialfile=default_filename,
-                                                        filetypes=[(f"{model_type.upper()} Files", f"*{file_extension}"), ("All Files", "*.*")])
-
-                if not file_path:  # User canceled the save dialog
-                    self.utils.log_message("Save operation canceled by user.", self, self.log_text, self.is_debug_mode)
-                    return
-
-            # Save the model
-            self.save_model_by_type(model, model_type, file_path)
-
-            # Save the scaler if available
-            if scaler:
-                scaler_file_path = file_path.replace(file_extension, '_scaler.pkl')
-                with open(scaler_file_path, 'wb') as scaler_file:
-                    pickle.dump(scaler, scaler_file)
-                self.utils.log_message(f"Scaler saved to {scaler_file_path}", self, self.log_text, self.is_debug_mode)
-
-            # Prepare and save metadata
-            metadata = self.construct_metadata(model, model_type)
-            metadata['scaler_type'] = type(scaler).__name__ if scaler else None
-            metadata['scaler_params'] = scaler.get_params() if scaler else None
-
-            metadata_file_path = file_path.replace(file_extension, '_metadata.json')
-            with open(metadata_file_path, 'w') as metadata_file:
-                json.dump(metadata, metadata_file, indent=4)
-            self.utils.log_message(f"Metadata saved to {metadata_file_path}", self, self.log_text, self.is_debug_mode)
-
-            self.utils.log_message(f"Model and associated data saved to {file_path}", self, self.log_text, self.is_debug_mode)
-        except Exception as e:
-            self.utils.log_message(f"Error saving model: {str(e)}", self, self.log_text, self.is_debug_mode)
-            raise  # Reraising the exception for further handling if necessary
 
 
     def save_model_by_type(self, model, model_type, file_path):
@@ -1398,42 +1517,6 @@ class ModelTrainingTab(tk.Frame):
             raise ValueError(f"Unsupported model type: {model_type}")
 
         print(f"Model of type '{model_type}' saved successfully.")
-
-
-
-    def construct_metadata(self, model, model_type):
-        """
-        Construct and return metadata for the model, including parameters and performance metrics.
-        """
-        # Initialize with common metadata
-        metadata = {
-            'model_type': model_type,
-            'training_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        }
-        
-        # Dynamically add model parameters based on model type
-        if hasattr(model, 'get_params'):
-            metadata['model_parameters'] = model.get_params()
-        elif model_type in ['keras_lstm', 'keras_nn']:
-            metadata.update({
-                'model_parameters': model.count_params(),
-                'last_epoch_accuracy': self.training_history.history['accuracy'][-1],
-                'last_epoch_loss': self.training_history.history['loss'][-1],
-            })
-        elif model_type == 'arima':
-            metadata.update({
-                'arima_order': getattr(model, 'order', 'N/A'),
-                'arima_seasonal_order': getattr(model, 'seasonal_order', None),
-            })
-        else:
-            metadata['model_parameters'] = 'N/A'
-        
-        # Optionally add epochs and batch_size if available in self
-        for attr in ['epochs', 'batch_size']:
-            metadata[attr] = getattr(self, attr, 'N/A')
-        
-        return metadata
-
 
     def start_automated_training(self):
         interval = self.schedule_dropdown.get()
@@ -2023,7 +2106,6 @@ class ModelTrainingTab(tk.Frame):
         submit_button = tk.Button(self.dynamic_options_frame, text="Submit", command=self.apply_neural_network_options)
         submit_button.pack()
 
-    
     def apply_neural_network_options(self):
         try:
             # Validate and retrieve epochs
@@ -2171,3 +2253,43 @@ class ModelTrainingTab(tk.Frame):
             X_new.append(X[i:i + n_steps])
             y_new.append(y[i + n_steps])
         return np.array(X_new), np.array(y_new)
+
+    def train_automl(self, X_train, y_train):
+        automl_model = AutoSklearnRegressor(time_left_for_this_task=120, per_run_time_limit=30)
+        automl_model.fit(X_train, y_train)
+        return automl_model
+    
+    def explain_model_predictions(self, model, X_train):
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_train)
+        shap.summary_plot(shap_values, X_train)
+
+    def visualize_data(self, data, column_name=None):
+        # Validate if the column_name is provided and exists in the DataFrame
+        if column_name and column_name in data.columns:
+            fig = px.histogram(data, x=column_name)
+        else:
+            # If column_name is not provided or doesn't exist, default to a known column or handle the error
+            # For demonstration, let's default to visualizing the 'close' column
+            default_column = 'close'  # Ensure this column exists in your DataFrame
+            if default_column in data.columns:
+                fig = px.histogram(data, x=default_column)
+            else:
+                # Handle the case where the default column also doesn't exist
+                print("The specified column for visualization does not exist in the DataFrame.")
+                return  # Exit the function if the column doesn't exist
+
+        fig.show()
+
+    def train_automl(self, X_train, y_train):
+        automl_model = AutoSklearnRegressor(time_left_for_this_task=120, per_run_time_limit=30)
+        automl_model.fit(X_train, y_train)
+        return automl_model
+
+    def explain_model_predictions(self, model, X_train):
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_train)
+        shap.summary_plot(shap_values, X_train)
+
+    def send_data_to_stream(self, data):
+        self.producer.send('ml_stream', data.encode('utf-8'))

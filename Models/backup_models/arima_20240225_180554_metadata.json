@@ -1,0 +1,10 @@
+{
+    "model_type": "arima",
+    "training_date": "2024-02-25 18:06:05",
+    "arima_order": "N/A",
+    "arima_seasonal_order": null,
+    "epochs": "N/A",
+    "batch_size": "N/A",
+    "scaler_type": null,
+    "scaler_params": null
+}
