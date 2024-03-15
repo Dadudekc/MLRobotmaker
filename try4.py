@@ -1,93 +1,142 @@
+#trade_analysis_tab.py
+
 import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-class ConnectFour:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Connect Four")
-        self.root.resizable(True, True)
-        self.initialize_game()
-        self.root.bind('<Configure>', self.resize)
+class TradingAnalysisTab(tk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.trade_data = pd.DataFrame()
+        self.create_widgets()
 
-    def initialize_game(self):
-        self.grid = [[' ' for _ in range(7)] for _ in range(6)]
-        self.canvases = []
-        for row in range(6):
-            row_list = []
-            for col in range(7):
-                canvas = tk.Canvas(self.root, bg='white')
-                canvas.grid(row=row, column=col, sticky="nsew")
-                self.root.grid_rowconfigure(row, weight=1)
-                self.root.grid_columnconfigure(col, weight=1)
-                canvas.bind("<Button-1>", lambda event, c=col: self.drop_disc(c))
-                row_list.append(canvas)
-            self.canvases.append(row_list)
-        self.current_player = 'R'
-        self.label = tk.Label(self.root, text="Player Red's Turn")
-        self.label.grid(row=7, columnspan=7, sticky="ew")
-        self.root.grid_rowconfigure(7, weight=0)
+    def create_widgets(self):
+        # Load Data Button
+        self.load_data_button = tk.Button(self, text="Load Trade Data", command=self.load_trade_data)
+        self.load_data_button.pack(pady=5)
 
-    def draw_circle(self, canvas, color):
-        canvas_width = canvas.winfo_width()
-        canvas_height = canvas.winfo_height()
-        size = min(canvas_width, canvas_height)
-        margin = size * 0.1
-        canvas.create_oval(margin, margin, size - margin, size - margin, fill=color, outline=color)
+        # Frame for Matplotlib Chart
+        self.chart_frame = tk.Frame(self)
+        self.chart_frame.pack(fill='both', expand=True)
+        self.figure, self.ax = plt.subplots(figsize=(5, 3))
+        self.canvas = FigureCanvasTkAgg(self.figure, self.chart_frame)
+        self.canvas_widget = self.canvas.get_tk_widget()
+        self.canvas_widget.pack(fill='both', expand=True)
 
-    def drop_disc(self, col):
-        row = self.find_row(col)
-        if row is not None:
-            self.grid[row][col] = self.current_player
-            color = 'red' if self.current_player == 'R' else 'yellow'
-            self.draw_circle(self.canvases[row][col], color)
-            if self.check_win(row, col):
-                self.label.config(text=f"Player {self.current_player} Wins!")
-                for row_canvases in self.canvases:
-                    for canvas in row_canvases:
-                        canvas.unbind("<Button-1>")
-                return
-            self.switch_player()
+        # Trade Analysis Section
+        self.analysis_text = tk.Text(self, height=10, width=50)
+        self.analysis_text.pack()
 
-    def resize(self, event):
-        for row in self.canvases:
-            for canvas in row:
-                self.redraw_canvas(canvas)
+        # Strategy Suggestions Section
+        self.strategy_text = tk.Text(self, height=10, width=50)
+        self.strategy_text.pack()
 
-    def redraw_canvas(self, canvas):
-        canvas.delete("all")
-        col = canvas.grid_info()['column']
-        row = canvas.grid_info()['row']
-        if self.grid[row][col] != ' ':
-            color = 'red' if self.grid[row][col] == 'R' else 'yellow'
-            self.draw_circle(canvas, color)
+    def load_trade_data(self):
+        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+        if file_path:
+            self.trade_data = pd.read_csv(file_path)
+            self.analyze_trades()
+            self.plot_trade_data()
 
-    def find_row(self, col):
-        for row in range(5, -1, -1):
-            if self.grid[row][col] == ' ':
-                return row
-        return None
+    def analyze_trades(self):
+        if self.trade_data.empty:
+            messagebox.showwarning("Warning", "No data loaded.")
+            return
 
-    def check_win(self, row, col):
-        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]  # horizontal, vertical, two diagonals
-        for dr, dc in directions:
-            count = 0
-            for i in range(-3, 4):
-                r = row + i * dr
-                c = col + i * dc
-                if 0 <= r < 6 and 0 <= c < 7 and self.grid[r][c] == self.current_player:
-                    count += 1
-                    if count == 4:
-                        return True
-                else:
-                    count = 0
-        return False
+        # Example Analysis (replace with real analysis)
+        self.analysis_text.insert(tk.END, "Performing analysis on trade data...\n")
+        profit_loss = self.trade_data['Exit Price'] - self.trade_data['Entry Price']
+        avg_profit_loss = profit_loss.mean()
+        self.analysis_text.insert(tk.END, f"Average Profit/Loss per Trade: {avg_profit_loss:.2f}\n")
 
-    def switch_player(self):
-        self.current_player = 'Y' if self.current_player == 'R' else 'R'
-        self.label.config(text=f"Player {self.current_player}'s Turn")
+        # Simulated Strategy Suggestion
+        self.strategy_text.insert(tk.END, "Strategy Suggestion based on analysis:\n")
+        self.strategy_text.insert(tk.END, "Adjust entry strategy to target higher average profit.\n")
+
+    def plot_trade_data(self):
+        if self.trade_data.empty:
+            return
+
+        self.ax.clear()
+        self.trade_data['Entry Price'].plot(ax=self.ax, label='Entry Price')
+        self.trade_data['Exit Price'].plot(ax=self.ax, label='Exit Price')
+        self.ax.legend()
+        self.ax.set_title('Entry and Exit Prices Over Time')
+        self.canvas.draw()
+        
+class RiskAssessment:
+    def __init__(self, historical_data):
+        self.historical_data = historical_data
+
+    def calculate_volatility(self):
+        return self.historical_data['Close'].pct_change().std()
+
+    def value_at_risk(self, confidence_level=0.95):
+        if not isinstance(self.historical_data, pd.DataFrame):
+            raise ValueError("Historical data is not in a pandas DataFrame format.")
+        
+        pct_changes = self.historical_data['Close'].pct_change()
+        return pct_changes.quantile(1 - confidence_level)
+
+    def expected_shortfall(self, confidence_level=0.95):
+        var = self.value_at_risk(confidence_level)
+        return self.historical_data['Close'].pct_change()[self.historical_data['Close'].pct_change() <= var].mean()
+
+    def assess_risk(self):
+        volatility = self.calculate_volatility()
+        var = self.value_at_risk()
+        es = self.expected_shortfall()
+        risk_metric = {
+            "volatility": volatility,
+            "value_at_risk": var,
+            "expected_shortfall": es
+        }
+        return risk_metric
+
+class RiskManagementJournal:
+    def __init__(self):
+        self.entries = []
+
+    def add_entry(self, entry):
+        self.entries.append(entry)
+
+    def display_journal(self):
+        for entry in self.entries:
+            print(entry)
+
+    def export_to_csv(self, path):
+        pd.DataFrame(self.entries).to_csv(path, index=False)
+
+    def import_from_csv(self, path):
+        self.entries = pd.read_csv(path).to_dict('records')
+
+class CustomRiskStrategies:
+    def __init__(self, strategy_name, parameters):
+        self.strategy_name = strategy_name
+        self.parameters = parameters
+
+    def apply_strategy(self, historical_data):
+        # Example strategy: Moving Average Crossover
+        if self.strategy_name == "Moving Average Crossover":
+            short_window = self.parameters.get('short_window', 40)
+            long_window = self.parameters.get('long_window', 100)
+            signals = pd.DataFrame(index=historical_data.index)
+            signals['signal'] = 0.0
+
+            signals['short_mavg'] = historical_data['Close'].rolling(window=short_window, min_periods=1, center=False).mean()
+            signals['long_mavg'] = historical_data['Close'].rolling(window=long_window, min_periods=1, center=False).mean()
+            signals['signal'][short_window:] = np.where(signals['short_mavg'][short_window:] > signals['long_mavg'][short_window:], 1.0, 0.0)   
+            signals['positions'] = signals['signal'].diff()
+            return signals
+        else:
+            raise ValueError("Strategy not recognized")
 
 def main():
     root = tk.Tk()
-    game = ConnectFour(root)
+    root.title("Trading Analysis")
+    TradingAnalysisTab(root).pack(fill="both", expand=True)
     root.mainloop()
 
 if __name__ == "__main__":
