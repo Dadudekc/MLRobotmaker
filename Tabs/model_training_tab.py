@@ -295,7 +295,6 @@ class ModelTrainingTab(tk.Frame):
 
     # Function to browse and select a data file
     def browse_data_file(self):
-        directory_path = filedialog.askdirectory()
         file_path = filedialog.askopenfilename(
             filetypes=[("CSV Files", "*.csv"), ("Excel Files", "*.xlsx"), ("All Files", "*.*")])
         if file_path:
@@ -303,8 +302,6 @@ class ModelTrainingTab(tk.Frame):
             self.data_file_entry.insert(0, file_path)
             self.preview_selected_data(file_path)
             self.utils.log_message(f"Selected data file: {file_path}", self, self.log_text, self.is_debug_mode) 
-        #if directory_path:
-            #self.process_directory(directory_path) for future automated training function
 
     def process_queue(self):
         """
@@ -491,6 +488,33 @@ class ModelTrainingTab(tk.Frame):
             self.batch_size_entry.pack_forget()
 
 
+    # Function to set up the start training button
+    def setup_start_training_button(self):
+        config_frame = ttk.Frame(self)
+        config_frame.pack(pady=10, fill='x', padx=10)
+        self.start_training_button = ttk.Button(config_frame, text="Start Training", command=self.start_training)
+        self.start_training_button.pack(padx=10)
+
+    def show_epochs_input(self, event):
+        selected_model_type = self.model_type_var.get()
+        
+        if selected_model_type in ["neural_network", "LSTM"]:
+            if not hasattr(self, 'epochs_label'):
+                self.epochs_label = tk.Label(self, text="Epochs:")
+                self.epochs_entry = tk.Entry(self)
+
+            self.epochs_label.pack(in_=self)
+            self.epochs_entry.pack(in_=self)
+
+            self.window_size_label.pack()
+            self.window_size_entry.pack()
+        else:
+            if hasattr(self, 'epochs_label'):
+                self.epochs_label.pack_forget()
+                self.epochs_entry.pack_forget()
+                self.window_size_label.pack_forget()
+                self.window_size_entry.pack_forget()
+
     def animate_visibility(self, widget, visible):
         # Animates visibility of a widget (entry, button, etc.)
         if widget is not None:
@@ -535,33 +559,21 @@ class ModelTrainingTab(tk.Frame):
         change_opacity()
 
 
-
-    # Function to set up the start training button
-    def setup_start_training_button(self):
-        config_frame = ttk.Frame(self)
-        config_frame.pack(pady=10, fill='x', padx=10)
-        self.start_training_button = ttk.Button(config_frame, text="Start Training", command=self.start_training)
-        self.start_training_button.pack(padx=10)
-
-    def show_epochs_input(self, event):
-        selected_model_type = self.model_type_var.get()
-        
-        if selected_model_type in ["neural_network", "LSTM"]:
-            if not hasattr(self, 'epochs_label'):
-                self.epochs_label = tk.Label(self, text="Epochs:")
-                self.epochs_entry = tk.Entry(self)
-
-            self.epochs_label.pack(in_=self)
-            self.epochs_entry.pack(in_=self)
-
-            self.window_size_label.pack()
-            self.window_size_entry.pack()
+    def get_epochs(self, model_type):
+        if model_type in ["neural_network", "LSTM"]:
+            try:
+                epochs_str = self.epochs_entry.get()
+                if not epochs_str.isdigit() or int(epochs_str) <= 0:
+                    self.utils.log_message("Epochs should be a positive integer.", self, self.log_text, self.is_debug_mode)
+                    return None
+                return int(epochs_str)
+            except _tkinter.TclError as e:
+                self.utils.log_message(f"Failed to retrieve epochs: {e}", self, self.log_text, self.is_debug_mode)
+                return None
         else:
-            if hasattr(self, 'epochs_label'):
-                self.epochs_label.pack_forget()
-                self.epochs_entry.pack_forget()
-                self.window_size_label.pack_forget()
-                self.window_size_entry.pack_forget()
+ 
+            return 0  
+
 
 # Section 2: GUI Components and Functions
 
@@ -700,7 +712,7 @@ class ModelTrainingTab(tk.Frame):
         widget.insert('end', message + "\n")
         widget.config(state='disabled')
         widget.see('end')
-
+        
     def start_training(self):
         if not self.validate_inputs():
             self.display_message("Invalid input. Please check your settings.", "ERROR")
@@ -726,6 +738,12 @@ class ModelTrainingTab(tk.Frame):
             data = pd.read_csv(data_file_path)
             self.display_message("Data loading and preprocessing started.", "INFO")
             X, y = self.preprocess_data_with_feature_engineering(data)
+
+            # Check if X or y is None or empty
+            if X is None or y is None or X.empty or y.empty:
+                self.display_message("Preprocessing resulted in empty data. Aborting training.", "ERROR")
+                return
+
             X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
             trained_model = None
@@ -749,52 +767,36 @@ class ModelTrainingTab(tk.Frame):
         finally:
             self.enable_training_button()
 
+    def create_lag_features(self, df, column_name, lag_sizes):
+        if column_name not in df.columns:
+            self.display_message(f"Warning: Column '{column_name}' not found in DataFrame. Skipping lag feature creation.", "ERROR")
+            return df
 
-    def create_lag_features(self, data, column_name, lags, method='pad'):
-        """
-        Creates lag features based on specified lags.
-
-        Args:
-            data (DataFrame): The input data.
-            column_name (str): The name of the column to create lag features for.
-            lags (list of int): The lag periods to create features for.
-            method (str): The method for handling NaN values. Default is 'pad'.
-
-        Returns:
-            DataFrame: The data with added lag features.
-        """
-        for lag in lags:
-            data[f'{column_name}_lag_{lag}'] = data[column_name].shift(lag)
-            if method == 'interpolate':
-                data[f'{column_name}_lag_{lag}'] = data[f'{column_name}_lag_{lag}'].interpolate(method='linear')
-            elif method == 'pad':
-                data[f'{column_name}_lag_{lag}'] = data[f'{column_name}_lag_{lag}'].fillna(method='pad')
-        return data
+        for lag_days in lag_sizes:
+            df[f'{column_name}_lag_{lag_days}'] = df[column_name].shift(lag_days)
+        
+        # Filling NaN values after lag feature creation
+        df.fillna(method='ffill', inplace=True)
+        df.fillna(method='bfill', inplace=True)  # For filling initial rows if needed
+        
+        return df
 
     def create_rolling_window_features(self, data, column_name, windows, method='pad'):
-        """
-        Creates rolling window features based on specified window sizes.
-
-        Args:
-            data (DataFrame): The input data.
-            column_name (str): The name of the column to create rolling window features for.
-            windows (list of int): The window sizes to create features for.
-            method (str): The method for handling NaN values. Default is 'pad'.
-
-        Returns:
-            DataFrame: The data with added rolling window features.
-        """
         for window in windows:
             data[f'{column_name}_rolling_mean_{window}'] = data[column_name].rolling(window=window).mean()
             data[f'{column_name}_rolling_std_{window}'] = data[column_name].rolling(window=window).std()
             
             if method == 'interpolate':
-                data[f'{column_name}_rolling_mean_{window}'] = data[f'{column_name}_rolling_mean_{window}'].interpolate(method='linear')
-                data[f'{column_name}_rolling_std_{window}'] = data[f'{column_name}_rolling_std_{window}'].interpolate(method='linear')
+                data[f'{column_name}_rolling_mean_{window}'].interpolate(method='linear', inplace=True)
+                data[f'{column_name}_rolling_std_{window}'].interpolate(method='linear', inplace=True)
             elif method == 'pad':
-                data[f'{column_name}_rolling_mean_{window}'] = data[f'{column_name}_rolling_mean_{window}'].fillna(method='pad')
-                data[f'{column_name}_rolling_std_{window}'] = data[f'{column_name}_rolling_std_{window}'].fillna(method='pad')
+                data[f'{column_name}_rolling_mean_{window}'].fillna(method='pad', inplace=True)
+                data[f'{column_name}_rolling_std_{window}'].fillna(method='pad', inplace=True)
+            else:
+                data.fillna(data.mean(), inplace=True)  # General fallback to mean imputation
+
         return data
+
 
     def preprocess_data_with_feature_engineering(self, data, lag_sizes=[1, 2, 3, 5, 10], window_sizes=[5, 10, 20]):
         # Initial data check
@@ -1505,16 +1507,7 @@ class ModelTrainingTab(tk.Frame):
 
     # Other helper classes and functions (FederatedLearningSimulator, DataAugmentation, Quantization) should be added as needed.
 
-    def get_epochs(self, model_type):
-        if model_type in ["neural_network", "LSTM"]:
-            epochs_str = self.epochs_entry.get()
-            if not epochs_str.isdigit() or int(epochs_str) <= 0:
-                self.utils.log_message("Epochs should be a positive integer.", self, self.log_text, self.is_debug_mode)
-                return None
-            return int(epochs_str)
-        else:
-            # For models like Random Forest, return a default value, like 1 or 0
-            return
+
 
     #Section 3: Data Preprocessing and Model Integration
             
