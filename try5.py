@@ -1,3 +1,7 @@
+#side project to visualize this in pyqt5
+#might remove and move to resume portfolio
+
+
 import sys
 import numpy as np
 from PyQt5.QtWidgets import QMainWindow, QApplication, QVBoxLayout, QWidget, QPushButton, QFileDialog, QMessageBox

@@ -1,5 +1,5 @@
 #trade_analysis_tab.py
-
+#concept/idea/planning/work in progress...
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd

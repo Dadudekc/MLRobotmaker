@@ -76,7 +76,7 @@ def select_trained_model():
         except Exception as e:
             print(f"Error loading model: {e}")  # Provide feedback
             risk_management_tab_instance.set_trained_model(None)
- 
+
 # Bind the select trained model function to a button or menu item in the Risk Management Tab
 button_select_model = ttk.Button(risk_management_tab_instance, text="Select Trained Model", command=select_trained_model)
 button_select_model.pack()
@@ -106,8 +106,5 @@ trade_description_tab_instance.pack(fill="both", expand=True)
 
 # Pack the tab control and run the main loop
 tabControl.pack(expand=1, fill="both")
-
-# Bind the select trained model function to a button or menu item in the Risk Management Tab
-risk_management_tab_instance.setup_select_trained_model_function(select_trained_model)
 
 root.mainloop()
