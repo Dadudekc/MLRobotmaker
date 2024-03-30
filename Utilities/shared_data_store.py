@@ -6,6 +6,18 @@ class Observer:
         # To be implemented by the observer, event_type can be used to differentiate the event
         # Making this method async suggests that the implementing observer might perform async operations
         pass
+    
+class ModelRetrainer(Observer):
+    async def update(self, message, event_type):
+        if event_type == "dataset_update":
+            print(f"New data available, retraining models. Event: {message}")
+            # Trigger model retraining here
+
+class ModelNotifier(Observer):
+    async def update(self, message, event_type):
+        if event_type == "model_update":
+            print(f"New model version available. Event: {message}")
+            # Send notifications or perform other actions here
 
 class SharedDataStore:
     def __init__(self):
@@ -63,7 +75,15 @@ class SharedDataStore:
                 else:
                     tasks.append(self.loop.run_in_executor(None, observer.update, message, event_type))
         await asyncio.gather(*tasks)
-        
+
+    def set_configuration(self, name, value):
+        """Set a configuration parameter."""
+        self.configurations[name] = value
+
+    def get_configuration(self, name, default=None):
+        """Get a configuration parameter, returning a default if not found."""
+        return self.configurations.get(name, default)
+           
 class LazyDataLoader:
     def __init__(self, loader_function):
         self.loader_function = loader_function
