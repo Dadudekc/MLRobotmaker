@@ -803,7 +803,10 @@ class ModelTrainingTab(tk.Frame):
         if data.empty:
             print("The dataset is empty before preprocessing. Please check the data source.")
             return None, None
-
+        
+        # Normalize column names
+        data.columns = data.columns.str.replace('^[0-9]+\. ', '', regex=True)
+        
         # Convert 'date' column to datetime and create a numeric feature from it
         if 'date' in data.columns:
             data['date'] = pd.to_datetime(data['date'])

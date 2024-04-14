@@ -26,6 +26,10 @@ class MLRobotUtils:
             # Ensure the GUI update is done in a thread-safe manner using the existing root window
             root_window.after(0, append_message)
 
+    def get_model_types(self):
+        """Return a list of supported model types."""
+        return ['linear_regression', 'random_forest', 'lstm', 'neural_network', 'arima']
+    
     def select_directory(self, entry):
         directory = filedialog.askdirectory()
         if self.is_debug_mode:
