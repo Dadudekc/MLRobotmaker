@@ -63,7 +63,9 @@ risk_management_tab = ttk.Frame(tabControl)
 tabControl.add(risk_management_tab, text='Risk Management')
 
 # Initialize RiskManagementTab without trained_model
-risk_management_tab_instance = RiskManagementTab(risk_management_tab, None)  # Passing None for trained_model
+# Assuming 'model_manager' is the instance of a class that should be passed to the RiskManagementTab
+model_manager = ModelManager()  # This should be defined somewhere in your script
+risk_management_tab_instance = RiskManagementTab(risk_management_tab, model_manager)
 
 # Function to select a trained model
 def select_trained_model():

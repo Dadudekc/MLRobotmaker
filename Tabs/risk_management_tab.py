@@ -1,132 +1,131 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
-import keras.models
 import numpy as np
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import keras.models
+import joblib
+import pickle
+import mplfinance as mpf
 from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import threading
+from datetime import datetime
 
-class HistoricalDataManager:
-    def __init__(self):
-        self.historical_data = {}
+# Assume these are imported correctly
+from risk_management_resources.HistoricalDataManager import HistoricalDataManager
+from risk_management_resources.ModelManager import ModelManager
 
-    def import_data(self, selected_asset, update_ui_callback, update_assets_callback=None):
-        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
-        if file_path:
-            try:
-                data = pd.read_csv(file_path)
-                self.historical_data[selected_asset] = data
-                if update_assets_callback:
-                    update_assets_callback()  # Update the dropdown list if callback is provided
-                update_ui_callback(f"Data imported for {selected_asset} from {file_path}.")
-            except Exception as e:
-                update_ui_callback(f"Failed to import data: {e}")
-
-    def calculate_performance_metrics(self, selected_asset, update_ui_callback):
-        asset_data = self.historical_data.get(selected_asset)
-        if asset_data is not None:
-            total_return = (asset_data['Close'].iloc[-1] / asset_data['Close'].iloc[0] - 1) * 100
-            update_ui_callback(f"Total Return for {selected_asset}: {total_return:.2f}%")
-        else:
-            update_ui_callback("No historical data available for {selected_asset}.")
-
-    def calculate_risk_metrics(self, selected_asset, update_ui_callback):
-        asset_data = self.historical_data.get(selected_asset)
-        if asset_data is not None:
-            daily_returns = asset_data['Close'].pct_change()
-            var_95 = np.percentile(daily_returns.dropna(), 5)
-            sharpe_ratio = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
-            cumulative_returns = (1 + daily_returns).cumprod()
-            peak = cumulative_returns.expanding(min_periods=1).max()
-            drawdown = (cumulative_returns / peak) - 1
-            max_drawdown = drawdown.min()
-            update_ui_callback(f"VaR (95%): {var_95:.2%}, Sharpe Ratio: {sharpe_ratio:.2f}, Maximum Drawdown: {max_drawdown:.2%}")
-        else:
-            update_ui_callback("No historical data available for {selected_asset}.")
-
-    def calculate_position_size(self, selected_asset, account_equity, risk_per_trade, update_ui_callback):
-        asset_data = self.historical_data.get(selected_asset)
-        if asset_data is not None:
-            daily_returns = asset_data['Close'].pct_change()
-            var_95 = np.percentile(daily_returns.dropna(), 5)
-            position_size = abs((account_equity * risk_per_trade) / var_95)
-            update_ui_callback(f"Recommended position size for {selected_asset}: {position_size:.2f}")
-        else:
-            update_ui_callback("No historical data available for {selected_asset}.")
-
-class ModelManager:
-    def __init__(self):
-        self.model = None
-
-    def select_model(self, update_ui_callback):
-        model_path = filedialog.askopenfilename(filetypes=[("Model Files", "*.h5"), ("Model Files", "*.model")])
-        if model_path:
-            try:
-                self.model = keras.models.load_model(model_path)
-                update_ui_callback(f"Model loaded successfully from {model_path}.")
-            except Exception as e:
-                update_ui_callback(f"Failed to load model: {e}")
-
+# GUI Components
 class RiskManagementTab(ttk.Frame):
-    def __init__(self, parent, trained_model=None):
+    def __init__(self, parent):
         super().__init__(parent)
         self.data_manager = HistoricalDataManager()
         self.model_manager = ModelManager()
-        self.selected_asset = tk.StringVar()
-        self.account_equity = tk.DoubleVar(value=10000.0)
-        self.risk_per_trade = tk.DoubleVar(value=0.01)
-        self.trained_model = trained_model
         self.create_widgets()
 
     def create_widgets(self):
-        ttk.Label(self, text="Select Asset:").pack()
-        self.asset_dropdown = ttk.Combobox(self, textvariable=self.selected_asset)
-        self.asset_dropdown.pack()
-        self.update_asset_dropdown()  # Ensure the dropdown is updated on init
+        control_frame = ttk.Frame(self)
+        control_frame.pack(side=tk.TOP, fill=tk.X, expand=False)
 
-        self.setup_data_import_button()
-        self.setup_metrics_button()
-        self.setup_risk_metrics_button()
-        self.setup_position_sizing_inputs()
-        self.setup_model_selection_button()
-        self.setup_plot_frame()
+        ttk.Label(control_frame, text="Asset:").pack(side=tk.LEFT)
+        self.asset_entry = ttk.Entry(control_frame)
+        self.asset_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(control_frame, text="Import Data", command=self.import_data).pack(side=tk.LEFT)
+        ttk.Button(control_frame, text="Load Model", command=self.load_model).pack(side=tk.LEFT)
+        ttk.Button(control_frame, text="Predict", command=self.predict).pack(side=tk.LEFT)
 
-    def update_asset_dropdown(self):
-        assets = list(self.data_manager.historical_data.keys())
-        self.asset_dropdown['values'] = assets
-        if assets:
-            self.selected_asset.set(assets[0])
+    def load_model(self):
+        def async_load():
+            self.model_manager.load_model(self.update_ui)
+        threading.Thread(target=async_load).start()
 
-    def setup_data_import_button(self):
-        ttk.Button(self, text="Import Historical Data", command=lambda: self.data_manager.import_data(self.asset_dropdown.get(), self.update_ui, self.update_asset_dropdown)).pack()
+    def import_data(self):
+        def async_import():
+            selected_asset = self.asset_entry.get()
+            self.data_manager.import_data(selected_asset, self.update_ui)
+        threading.Thread(target=async_import).start()
 
-    def setup_metrics_button(self):
-        ttk.Button(self, text="Calculate Performance Metrics", command=lambda: self.data_manager.calculate_performance_metrics(self.selected_asset.get(), self.update_ui)).pack()
+    def predict(self):
+        try:
+            input_data = float(self.asset_entry.get())  # Convert input to float
+            self.model_manager.predict(input_data, self.update_ui)
+        except ValueError:
+            messagebox.showerror("Error", "Invalid input. Please enter a numeric value.")
 
-    def setup_risk_metrics_button(self):
-        ttk.Button(self, text="Calculate Risk Metrics", command=lambda: self.data_manager.calculate_risk_metrics(self.selected_asset.get(), self.update_ui)).pack()
+    def validate_asset_input(self):
+        if not self.asset_entry.get().strip():
+            messagebox.showerror("Error", "Asset name cannot be empty.")
+            return False
+        return True
 
-    def setup_position_sizing_inputs(self):
-        ttk.Label(self, text="Account Equity:").pack()
-        ttk.Entry(self, textvariable=self.account_equity).pack()
-        ttk.Label(self, text="Risk Per Trade (%):").pack()
-        ttk.Entry(self, textvariable=self.risk_per_trade).pack()
-        ttk.Button(self, text="Calculate Position Size", command=lambda: self.data_manager.calculate_position_size(self.selected_asset.get(), self.account_equity.get(), self.risk_per_trade.get() / 100, self.update_ui)).pack()
+    def update_ui(self, message):
+        messagebox.showinfo("Info", message)
 
-    def setup_model_selection_button(self):
-        ttk.Button(self, text="Select Trained Model", command=lambda: self.model_manager.select_model(self.update_ui)).pack()
+class ChartTab(ttk.Frame):
+    def __init__(self, parent, model_manager):
+        super().__init__(parent)
+        self.data_manager = HistoricalDataManager()
+        self.model_manager = model_manager
+        self.figure = Figure(figsize=(10, 5))
+        self.ax = self.figure.add_subplot(111)
+        self.canvas = FigureCanvasTkAgg(self.figure, self)
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-    def setup_plot_frame(self):
-        plot_frame = ttk.Frame(self)
-        plot_frame.pack(fill=tk.BOTH, expand=True)
-        self.figure = Figure(figsize=(5, 4), dpi=100)
-        self.plot = self.figure.add_subplot(111)
-        self.canvas = FigureCanvasTkAgg(self.figure, master=plot_frame)
-        self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.plot_type_var = tk.StringVar(value='candle')
+        plot_options = ttk.OptionMenu(self, self.plot_type_var, 'candle', 'candle', 'line', 'ohlc')
+        plot_options.pack(side=tk.BOTTOM, fill=tk.X, expand=False)
 
+        self.current_index = 0
+        self.data = None
+
+        # Control to enter/load data
+        self.load_data_button = ttk.Button(self, text="Load Data", command=self.load_data)
+        self.load_data_button.pack(side=tk.BOTTOM, fill=tk.X, expand=False)
+
+        # Navigation buttons
+        nav_frame = ttk.Frame(self)
+        nav_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Button(nav_frame, text="<<", command=self.prev_candle).pack(side=tk.LEFT)
+        ttk.Button(nav_frame, text=">>", command=self.next_candle).pack(side=tk.LEFT)
+
+    def load_data(self):
+        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+        if file_path:
+            self.data = pd.read_csv(file_path, parse_dates=True, index_col=0)  # Assuming datetime index
+            self.current_index = 0
+            self.update_chart()
+
+    def update_chart(self):
+        if self.data is not None and not self.data.empty:
+            display_data = self.data.iloc[:self.current_index+1]
+            if not display_data.empty:
+                self.ax.clear()
+                mpf.plot(display_data, ax=self.ax, type=self.plot_type_var.get(), style='charles', volume=True)
+                
+                # Plotting model predictions if available
+                if self.model_manager.model:
+                    predictions = self.model_manager.model.predict(display_data[['Close']])
+                    self.ax.plot(display_data.index, predictions, label='Predictions', color='red')
+                    self.ax.legend()
+
+                self.canvas.draw()
+
+    def next_candle(self):
+        if self.data is not None and self.current_index < len(self.data) - 1:
+            self.current_index += 1
+            self.update_chart()
+
+    def prev_candle(self):
+        if self.data is not None and self.current_index > 0:
+            self.current_index -= 1
+            self.update_chart()
+
+# Main application setup
 if __name__ == "__main__":
     root = tk.Tk()
-    root.title("Risk Management")
-    RiskManagementTab(root).pack(fill="both", expand=True)
+    tab_control = ttk.Notebook(root)
+    risk_management_tab = RiskManagementTab(tab_control)
+    tab_control.add(risk_management_tab, text="Risk Management")
+    chart_tab = ChartTab(tab_control)  
+    tab_control.pack(expand=1, fill="both")
     root.mainloop()
