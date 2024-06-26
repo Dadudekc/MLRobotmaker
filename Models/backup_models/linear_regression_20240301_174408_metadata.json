@@ -1,0 +1,51 @@
+{
+    "model_type": "linear_regression",
+    "training_date": "2024-03-01 17:44:11",
+    "model_parameters": {
+        "memory": "None",
+        "steps": "[('simpleimputer', SimpleImputer()), ('linearregression', LinearRegression())]",
+        "verbose": "False",
+        "simpleimputer": "SimpleImputer()",
+        "linearregression": "LinearRegression()",
+        "simpleimputer__add_indicator": "False",
+        "simpleimputer__copy": "True",
+        "simpleimputer__fill_value": "None",
+        "simpleimputer__keep_empty_features": "False",
+        "simpleimputer__missing_values": "nan",
+        "simpleimputer__strategy": "mean",
+        "linearregression__copy_X": "True",
+        "linearregression__fit_intercept": "True",
+        "linearregression__n_jobs": "None",
+        "linearregression__positive": "False"
+    },
+    "pipeline_steps": {
+        "simpleimputer": {
+            "class": "SimpleImputer",
+            "parameters": {
+                "add_indicator": "False",
+                "copy": "True",
+                "fill_value": "None",
+                "keep_empty_features": "False",
+                "missing_values": "nan",
+                "strategy": "mean"
+            }
+        },
+        "linearregression": {
+            "class": "LinearRegression",
+            "parameters": {
+                "copy_X": "True",
+                "fit_intercept": "True",
+                "n_jobs": "None",
+                "positive": "False"
+            }
+        }
+    },
+    "scaler": {
+        "class": "StandardScaler",
+        "parameters": {
+            "copy": "True",
+            "with_mean": "True",
+            "with_std": "True"
+        }
+    }
+}

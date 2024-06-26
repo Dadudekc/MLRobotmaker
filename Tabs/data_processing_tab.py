@@ -163,21 +163,7 @@ class DataProcessingTab:
             messagebox.showerror("Processing Error", str(e))
 
     def apply_feature(self, df, feature_name):
-        """
-        Apply the given feature to the DataFrame.
-        
-        Args:
-        df (pd.DataFrame): The DataFrame to which the feature will be applied.
-        feature_name (str): The name of the feature to apply.
-
-        Returns:
-        pd.DataFrame: The DataFrame with the applied feature.
-        
-        Raises:
-        ValueError: If the feature method does not return a DataFrame.
-        """
         try:
-            # Dictionary mapping feature names to their corresponding methods
             feature_methods = {
                 "Simple Moving Average (SMA)": TechnicalIndicators.add_moving_average,
                 "Exponential Moving Average (EMA)": TechnicalIndicators.add_exponential_moving_average,
@@ -198,7 +184,7 @@ class DataProcessingTab:
                 "Average Directional Index (ADX)": TechnicalIndicators.add_adx,
                 "Ichimoku Cloud": TechnicalIndicators.add_ichimoku_cloud,
                 "Parabolic SAR": TechnicalIndicators.add_parabolic_sar,
-                "Zigzag Indicator": TechnicalIndicators.add_zigzag_indicator,  # Assuming this method exists in TechnicalIndicators
+                "Zigzag Indicator": TechnicalIndicators.add_zigzag_indicator,
                 "On-Balance Volume (OBV)": TechnicalIndicators.add_on_balance_volume,
                 "Volume Weighted Average Price (VWAP)": TechnicalIndicators.add_vwap,
                 "Accumulation/Distribution Line (ADL)": TechnicalIndicators.add_accumulation_distribution_line,
@@ -208,38 +194,29 @@ class DataProcessingTab:
                 "TRIX": TechnicalIndicators.add_trix,
                 "Standard Pivot Points": TechnicalIndicators.add_standard_pivot_points,
                 "Fibonacci Retracements": TechnicalIndicators.add_fibonacci_retracement_levels,
-                # ... add any additional features and their corresponding methods here ...
             }
 
-            # Check if the feature is in the feature methods dictionary
             if feature_name in feature_methods:
-                # Get the method corresponding to the feature name
                 feature_method = feature_methods[feature_name]
-                # Apply the feature method to the DataFrame
                 result = feature_method(df)
 
-                # Ensure the returned result is a DataFrame
                 if not isinstance(result, pd.DataFrame):
                     raise ValueError(f"Expected a DataFrame from {feature_name}, but got {type(result)}.")
 
-                # Debug mode logging
                 if self.is_debug_mode:
                     self.utils.log_message(f"Applied {feature_name}.", self.parent, self.log_message)
                     self.utils.log_message(f"DataFrame columns after processing {feature_name}: {result.columns}", self.parent, self.log_message)
                     self.utils.log_message(f"DataFrame sample after processing {feature_name}:\n{result.head()}", self.parent, self.log_message)
 
-                return result  # Return the DataFrame with the applied feature
+                return result
 
             else:
-                # Log a message if the feature method is not found
                 self.utils.log_message(f"Feature method for '{feature_name}' not found.", self.parent, self.log_message)
 
         except Exception as e:
-            # Log the error and rethrow if in debug mode
             if self.is_debug_mode:
                 self.utils.log_message(f"Error applying {feature_name}: {str(e)}", self.parent, self.log_message)
-
-            raise  # Rethrow the exception to handle it in the calling method
+            raise
 
     def standardize_column_names(self, df):
         column_renames = {
@@ -252,18 +229,14 @@ class DataProcessingTab:
         df.rename(columns=column_renames, inplace=True)
 
 def main():
-    # Load configuration
     config = configparser.ConfigParser()
-    config.read('config.ini')  # Replace with your config file path
+    config.read('config.ini')
 
-    # Create the main Tkinter window
     root = tk.Tk()
     root.title("ML Robot")
 
-    # Create an instance of DataProcessingTab, passing both root and config
     app = DataProcessingTab(root, config)
 
-    # Run the Tkinter event loop
     root.mainloop()
 
 if __name__ == "__main__":

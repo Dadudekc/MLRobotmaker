@@ -100,15 +100,6 @@ class MLRobotUtils:
             data_file_entry.insert(0, file_path)  # Insert the selected file path into the entry field
 
     def load_configuration(self, config_file='config.ini'):
-        """
-        Load a configuration file.
-
-        Args:
-            config_file (str): Path to the configuration file.
-
-        Returns:
-            ConfigParser: The configuration object.
-        """
         config = configparser.ConfigParser()
         if not os.path.exists(config_file):
             logging.error(f"Configuration file does not exist: {config_file}")
@@ -118,26 +109,9 @@ class MLRobotUtils:
         return config
 
     def setup_logging(self, level=logging.INFO):
-        """
-        Set up basic logging configuration.
-
-        Args:
-            level (int): Logging level.
-        """
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=level)
 
     def validate_section_keys(self, config, section, required_keys):
-        """
-        Validate that all necessary keys are present in a specified configuration section.
-
-        Args:
-            config (ConfigParser object): Configuration object to validate.
-            section (str): Section name to check in the configuration.
-            required_keys (list): Required keys to check for in the section.
-
-        Raises:
-            ValueError: If any required keys are missing.
-        """
         missing_keys = [key for key in required_keys if key not in config[section]]
         if missing_keys:
             raise ValueError(f"Missing required config key(s) in '{section}': {', '.join(missing_keys)}")
@@ -166,7 +140,6 @@ class MLRobotUtils:
             messagebox.showerror("Error", error_message)
 
     def display_data_preview(self, data):
-        """Displays a preview of the fetched data."""
         if data is not None:
             self.log_text.insert(tk.END, data.head().to_string())
         else:
@@ -188,7 +161,6 @@ class MLRobotUtils:
             messagebox.showerror("Error", error_message)
 
     def update_status_label(self, message):
-        """Updates the status label with a given message."""
         self.status_label.config(text=message)
 
     def create_candlestick_chart(self):
@@ -209,43 +181,28 @@ class MLRobotUtils:
             canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
     def browse_file(self, entry_widget):
-        """
-        Open a file dialog and set the selected file path in the provided Entry widget.
-
-        Args:
-            entry_widget (tk.Entry): The Entry widget to set the file path in.
-
-        Returns:
-            None
-        """
-        # Open a file dialog to choose a CSV file
         file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
-        
-        # If a file is selected, update the provided entry_widget with this path
         if file_path:
-            entry_widget.delete(0, tk.END)  # Clear any existing text in the entry
-            entry_widget.insert(0, file_path)  # Insert the selected file path
+            entry_widget.delete(0, tk.END)
+            entry_widget.insert(0, file_path)
 
     def clear_logs(self):
         if hasattr(self, 'log_text'):
-            self.log_text.delete('1.0', tk.END)  # Clear the content of the log text widget
+            self.log_text.delete('1.0', tk.END)
 
     def toggle_debug_mode(self, debug_mode_button):
-        # Toggle debug mode state
         self.is_debug_mode = not self.is_debug_mode
-        print(f"Debug mode set to: {self.is_debug_mode}")  # Debug print statement
+        print(f"Debug mode set to: {self.is_debug_mode}")
 
-        # Update the button text to reflect the current state
         if self.is_debug_mode:
             debug_mode_button.config(text="Debug Mode: ON")
-            print("Debug mode is now ON")  # Debug print statement
+            print("Debug mode is now ON")
         else:
             debug_mode_button.config(text="Debug Mode: OFF")
-            print("Debug mode is now OFF")  # Debug print statement
+            print("Debug mode is now OFF")
 
     def browse_save_directory(self):
-        """Open a file dialog to select the save directory."""
         save_dir = filedialog.askdirectory()
         if save_dir:
-            self.csv_dir = save_dir  # Update the save directory
+            self.csv_dir = save_dir
             self.save_dir_label.config(text=f"Save Directory: {save_dir}")

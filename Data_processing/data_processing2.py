@@ -1,5 +1,3 @@
-#data_processing2.py
-
 # Imports and Initial Configurations
 import warnings
 import json
@@ -91,7 +89,7 @@ def detect_and_transform_format(file_path):
     new_df = new_df[['date', 'open', 'high', 'low', 'close', 'volume']]
 
     # Save the transformed DataFrame to a new CSV
-    new_file_path = Path(file_path).with_name("transformed_" + Path(file_path).name)
+    new_file_path = Path(file_path).with name("transformed_" + Path(file_path).name)
     new_df.to_csv(new_file_path, index=False)
 
     return new_file_path
@@ -409,7 +407,12 @@ def add_camarilla_pivot_points(df):
     df['Camarilla_S4'] = df['close'].shift(1) - 1.1 * (df['high'].shift(1) - df['low'].shift(1)) / 2
     return df
 
-# Process Data Function
+def add_relative_volatility_index(df, window=14):
+    std_dev = df['close'].diff().rolling(window=window).std()
+    df['RVI'] = std_dev / std_dev.rolling(window=window).mean() * 100
+    return df
+
+# Process Data Function (Combining logic from both scripts)
 def process_data(ticker, features_to_add):
     try:
         logger.info(f"Processing data for ticker: {ticker}")
@@ -525,90 +528,7 @@ def process_data(ticker, features_to_add):
     except Exception as e:
         logger.error(f"Error while processing {ticker}. Error: {e}", exc_info=True)
 
-
-
-def add_relative_volatility_index(df, window=14):
-    std_dev = df['close'].diff().rolling(window=window).std()
-    df['RVI'] = std_dev / std_dev.rolling(window=window).mean() * 100
-    return df
-
-# Feature Selection Function (Use either of the script's logic)
-def select_features():
-    print("The default option is to select all features.")
-    override_default = input("Would you like to make a custom selection? (yes/no): ").strip().lower()
-
-    if override_default != 'yes':
-        # Return all features except the "Quit" option
-        return [value for key, value in features_dict.items() if key != "41"]  # Assuming "41" is the key for "Quit"
-
-    selected_features = []
-    print("Please select the technical indicators you want to add:")
-    
-    for key, value in features_dict.items():
-        print(f"{key}. {value}")
-
-    while True:
-        choice = input("Enter the number(s) of the indicator (comma-separated) or 'Quit' to finish: ").strip().lower()
-        
-        if choice in ['quit', '41']: 
-            break
-        else:
-            choices = [ch.strip() for ch in choice.split(',')]
-            for ch in choices:
-                if ch in features_dict and ch != "41":  # Exclude "Quit"
-                    selected_features.append(features_dict[ch])
-                else:
-                    print(f"Invalid choice '{ch}', please try again.")
-
-    return selected_features
-
-# Main Execution Block
-if __name__ == "__main__":
-    features_dict = {
-        "1": "Simple Moving Average (SMA)",
-        "2": "Exponential Moving Average (EMA)",
-        "3": "Bollinger Bands",
-        "4": "Relative Strength Index (RSI)",
-        "5": "Stochastic Oscillator",
-        "6": "MACD",
-        "7": "Commodity Channel Index (CCI)",
-        "8": "Williams %R",
-        "9": "Rate of Change (ROC)",
-        "10": "Money Flow Index (MFI)",
-        "11": "Average True Range (ATR)",
-        "12": "Keltner Channel",
-        "13": "Standard Deviation",
-        "14": "Historical Volatility",
-        "15": "Chandelier Exit",
-        "16": "Moving Average Envelope (MAE)",
-        "17": "Average Directional Index (ADX)",
-        "18": "Ichimoku Cloud",
-        "19": "Parabolic SAR",
-        "20": "ZigZag Indicator",
-        "21": "On-Balance Volume (OBV)",
-        "22": "Volume Weighted Average Price (VWAP)",
-        "23": "Accumulation/Distribution Line (ADL)",
-        "24": "Chaikin Money Flow (CMF)",
-        "25": "Volume Oscillator",
-        "26": "Awesome Oscillator",
-        "27": "TRIX",
-        "28": "Standard Pivot Points",
-        "29": "Elders Force Index",
-        "30": "Hull Moving Average (HMA)",
-        "31": "Detrended Price Oscillator (DPO)",
-        "32": "Gann High Low Activator",
-        "33": "Fisher Transform",
-        "34": "Coppock Curve",
-        "35": "Ultimate Oscillator",
-        "36": "SuperTrend",
-        "37": "Fibonacci Retracement Levels",
-        "38": "MACD Histogram",
-        "39": "woodie Pivot Points",
-        "40": "Camarilla Pivot Points",
-        "41": "Quit"
-
-    }
-
+# Feature Selection Function
 def select_features(features_dict):
     selected_features = []
     print("Please select the technical indicators you want to add:")

@@ -1,0 +1,9 @@
+{
+    "model_type": "lstm",
+    "training_date": "2024-02-25 23:46:37",
+    "model_parameters": "N/A",
+    "epochs": "N/A",
+    "batch_size": "N/A",
+    "scaler_type": null,
+    "scaler_params": null
+}

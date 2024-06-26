@@ -1,6 +1,3 @@
-#technical_indicators.py
-
-
 import pandas as pd
 import numpy as np
 from ta.trend import ADXIndicator
@@ -20,9 +17,8 @@ from ta.trend import PSARIndicator
 from ta.volume import VolumeWeightedAveragePrice
 from pandas_ta.volume import obv
 from pandas_ta.momentum import ao
-import self
-import time
 import talib
+import time
 
 class AverageTrueRange:
     def __init__(self, high, low, close, window_size):
@@ -62,7 +58,6 @@ class AverageTrueRange:
         atr = tr.rolling(window=self.window_size).mean()
         return atr
 
-
 class TechnicalIndicators:
     @staticmethod
     def add_moving_average(df, window_size=10, user_defined_window=None, column='close', ma_type='SMA'):
@@ -96,7 +91,6 @@ class TechnicalIndicators:
 
         return df
 
-
     @staticmethod
     def add_bollinger_bands(df, window_size=10, std_multiplier=2, user_defined_window=None):
         """
@@ -121,7 +115,6 @@ class TechnicalIndicators:
         df['Bollinger_Mid'] = rolling_mean
 
         return df
-
 
     @staticmethod
     def add_exponential_moving_average(df, column='close', window_size=10):
@@ -788,8 +781,6 @@ class TechnicalIndicators:
 
         return threshold
 
-
-
     @staticmethod
     def add_zigzag_indicator(df, lookback=5, dynamic_threshold=True, fixed_threshold=2.0, vol_window=20):
         threshold = TechnicalIndicators.determine_threshold(df, dynamic=dynamic_threshold, fixed_threshold=fixed_threshold, vol_window=vol_window)
@@ -815,9 +806,7 @@ class TechnicalIndicators:
 
         return df
 
-
-# Section 6: Volume Indicators
-
+    # Section 6: Volume Indicators
 
     @staticmethod
     def add_on_balance_volume(df, user_defined_window=None):
@@ -948,7 +937,6 @@ class TechnicalIndicators:
 
 # Section 7: Other Indicators
 
-
     @staticmethod
     def add_trix(df, span=15, signal_line_span=9):
         """
@@ -958,7 +946,7 @@ class TechnicalIndicators:
         The signal line is an EMA of the TRIX.
 
         Args:
-            df (pd.DataFrame): DataFrame with a 'close' column.
+            df (DataFrame): DataFrame with a 'close' column.
             span (int): The span for calculating TRIX. Default is 15.
             signal_line_span (int): The span for calculating the signal line. Default is 9.
 
@@ -988,7 +976,6 @@ class TechnicalIndicators:
         df['TRIX_signal'] = df['TRIX'].ewm(span=signal_line_span, adjust=False).mean()
 
         return df
-
 
 # Section 8: Custom Indicators
 
@@ -1120,7 +1107,6 @@ class TechnicalIndicators:
         df['Volume_Oscillator'] = short_vol_ema - long_vol_ema
 
         return df
-
 
 # End of the Technical Indicators module
 

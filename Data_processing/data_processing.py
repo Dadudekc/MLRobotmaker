@@ -1,7 +1,7 @@
 import os
 import sys
 import pandas as pd
-from Data_processing import data_io 
+from Data_processing import data_io
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from Utilities import config_manager
 from Data_processing import technical_indicators as ti

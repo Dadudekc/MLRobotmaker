@@ -46,3 +46,5 @@ wheels/
 .env
 .env.*
 .venv
+
+config.ini
