@@ -1,0 +1,9 @@
+{
+    "model_type": "linear_regression",
+    "training_date": "2024-03-01 16:31:04",
+    "model_parameters": {
+        "memory": null,
+        "steps": [
+            [
+                "simpleimputer",
+                

@@ -1,0 +1,1 @@
+{"model_type": "linear_regression", "training_timestamp": "2023-10-29 18:53:52", "model_version": "1.0", "mse": 0.09120923641815683, "rmse": 0.302008669442049, "mae": 0.2421404582798711, "r2": 0.9969792721893749, "directional_accuracy": 1.0}

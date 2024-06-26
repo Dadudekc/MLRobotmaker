@@ -1,0 +1,14 @@
+{
+    "model_type": "linear_regression",
+    "training_date": "2024-03-12 11:01:03",
+    "model_parameters": {
+        "alpha": "0.2682695795279725",
+        "copy_X": "True",
+        "fit_intercept": "True",
+        "max_iter": "None",
+        "positive": "False",
+        "random_state": "None",
+        "solver": "auto",
+        "tol": "0.0001"
+    }
+}
